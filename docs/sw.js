@@ -1,5 +1,5 @@
 // Service Worker: App startet auch bei schwachem Netz; Katalog wird immer frisch geholt, wenn möglich.
-const CACHE = "hoerbuecher-v1";
+const CACHE = "hoerbuecher-v3";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
@@ -12,7 +12,7 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;   // Audio & Cover direkt laden
-  const fresh = url.pathname.endsWith("catalog.json") || url.pathname.includes("/tracks/") ||
+  const fresh = url.pathname.endsWith("catalog.json") || url.pathname.endsWith("podcasts.json") || url.pathname.includes("/tracks/") ||
                 e.request.mode === "navigate" || url.pathname.endsWith("index.html");
   if (fresh) {   // Netz zuerst, bei Funkloch aus dem Speicher
     e.respondWith(fetch(e.request).then(r => {

@@ -134,6 +134,16 @@ ol.ch li.cur .n{color:var(--accent)}
 #install{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;font-size:14px;display:none;gap:10px;align-items:flex-start}
 #install b{display:block;margin-bottom:2px}
 #install button{color:var(--muted);font-size:20px;line-height:1}
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.ptile{text-align:left}.ptile .cv{width:100%;aspect-ratio:1;border-radius:10px}.ptile .cv .ini{font-size:34px}
+.ptile .tt{font-size:13px;font-weight:600;margin-top:5px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ptile .nw{font-size:12px;color:var(--accent);font-weight:600}
+.addbtn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:18px 0 0;padding:12px;border-radius:12px;border:1.5px dashed var(--line);color:var(--accent);font-weight:600}
+#menu .box .sr{display:flex;gap:10px;align-items:center;text-align:left;padding:10px 0;border-top:1px solid var(--line);font-size:15px}
+#menu .box .sr img{width:52px;height:52px;border-radius:8px;object-fit:cover;background:var(--chip)}
+#menu .box .sr .x{flex:1;min-width:0}#menu .box .sr .x small{display:block;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#menu .box .sr button{width:auto;border:0;padding:7px 12px;font-size:14px;font-weight:600;color:var(--on-accent);background:var(--accent);border-radius:99px}
+#menu .box .sr button.had{background:var(--chip);color:var(--muted)}
 .foot{color:var(--muted);font-size:12.5px;text-align:center;margin-top:30px}
 </style>
 </head>
@@ -145,6 +155,7 @@ ol.ch li.cur .n{color:var(--accent)}
 
 <nav id="tabs">
   <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>Entdecken</button>
+  <button data-tab="pods"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>Podcasts</button>
   <button data-tab="lib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16M10 4v16M15 4.5l4.5 15"/></svg>Bibliothek</button>
   <button data-tab="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Suche</button>
 </nav>
@@ -196,15 +207,19 @@ const ICON = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
 };
 
-let BOOKS = [], BY = {}, UPDATED = null;
+let BOOKS = [], BY = {}, UPDATED = null, PODS = [], PODBY = {};
+let podHide = store.get("hf_podhide", []);
 let progress = store.get("hf_progress", {});     // id -> {i, t, pos, ts, done}
 let saved = store.get("hf_saved", []);           // gemerkte IDs (neueste zuerst)
 let speed = store.get("hf_speed", 1);
 const trackCache = {};
-const ui = { form: "", sort: "title", lib: "cont", q: "", shown: 60 };
+const ui = { form: "", sort: "title", lib: "cont", q: "", shown: 60, noext: store.get("hf_noext", false) };
+const vis = b => !(ui.noext && b.ext);
+const extToggle = () => `<button class="chip" data-noext style="border:0;cursor:pointer;${ui.noext ? "background:var(--accent);color:var(--on-accent)" : ""}">${ui.noext ? "✓ " : ""}Nur in der App abspielbar</button>`;
 
 function cover(b, cls = "cv") {
-  return `<div class="${cls}" style="${b.img ? `background-image:url('${esc(b.img)}')` : `background:hsl(${hue(b.t)} 30% 85%)`}">${b.img ? "" : `<span class="ini">${esc((b.t || "?")[0])}</span>`}</div>`;
+  const name = (b.pod && PODBY[b.pod]?.name) || b.t || "?";
+  return `<div class="${cls}" style="${b.img ? `background-image:url('${esc(b.img)}')` : `background:hsl(${hue(name)} 30% 85%)`}">${b.img ? "" : `<span class="ini">${esc(name[0])}</span>`}</div>`;
 }
 function pct(b) { const p = progress[b.id]; if (!p) return 0; if (p.done) return 1; return b.d ? Math.min(1, (p.pos || 0) / b.d) : 0; }
 function byline(b) { return b.a || b.st || b.src; }
@@ -220,7 +235,7 @@ function setTab(t) { document.querySelectorAll("#tabs button").forEach(b => b.cl
 function rowHTML(b) {
   const p = pct(b);
   return `<button class="row" data-book="${esc(b.id)}">${cover(b)}<div class="info"><div class="tt">${esc(b.t)}</div>
-    <div class="ta">${esc(byline(b))}</div><div class="tm">${dur(b.d)} · ${b.p} ${b.p == 1 ? "Teil" : "Teile"} · ${esc(b.f)}${progress[b.id]?.done ? " · gehört ✓" : ""}</div>
+    <div class="ta">${esc(byline(b))}</div><div class="tm">${dur(b.d)} · ${b.ext ? `bei ${esc(b.src)} ↗` : `${b.p} ${b.p == 1 ? "Teil" : "Teile"} · ${esc(b.f)}`}${progress[b.id]?.done ? " · gehört ✓" : ""}</div>
     ${p > 0 && p < 1 ? `<div class="bar"><i style="width:${p * 100}%"></i></div>` : ""}</div></button>`;
 }
 function tileHTML(b) {
@@ -243,7 +258,7 @@ function continueList() {
 let shuffleSeed = Math.random();
 function picks(n) {
   let s = shuffleSeed * 1e9; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-  const pool = BOOKS.filter(b => !progress[b.id]); const out = [];
+  const pool = BOOKS.filter(b => !progress[b.id] && !b.ext); const out = [];
   for (let i = 0; i < n && pool.length; i++) out.push(pool.splice(Math.floor(rnd() * pool.length), 1)[0]);
   return out;
 }
@@ -252,20 +267,20 @@ function vHome() {
   setTop("Entdecken"); setTab("home");
   if (!BOOKS.length) { view.innerHTML = `<div class="empty">Katalog wird geladen …</div>`; return; }
   const cont = continueList(), counts = {};
-  BOOKS.forEach(b => counts[b.c] = (counts[b.c] || 0) + 1);
+  BOOKS.filter(vis).forEach(b => counts[b.c] = (counts[b.c] || 0) + 1);
   const cats = Object.keys(counts).sort((a, b) => a.localeCompare(b, "de"));
   view.innerHTML = installHint() +
     (cont.length ? `<h2 class="sec">Weiterhören</h2><div class="hscroll">${cont.map(tileHTML).join("")}</div>` : "") +
     `<h2 class="sec">Zufallsfunde <button data-shuffle>Neu mischen</button></h2><div class="hscroll">${picks(12).map(tileHTML).join("")}</div>
      <h2 class="sec">Kategorien</h2><div class="cats">${cats.map(c => `<button class="cat" data-cat="${esc(c)}" style="background:linear-gradient(135deg,hsl(${hue(c)} 45% 42%),hsl(${(hue(c) + 35) % 360} 50% 32%))">${esc(c)}<small>${counts[c]} Titel</small></button>`).join("")}</div>
-     <div class="foot">${BOOKS.length} vollständige Hörbücher${UPDATED ? ` · Katalog vom ${new Date(UPDATED).toLocaleDateString("de-DE")}` : ""}<br>Quellen: LibriVox (gemeinfrei) · ARD Audiothek</div>`;
+     <div class="foot">${BOOKS.length} vollständige Hörbücher${UPDATED ? ` · Katalog vom ${new Date(UPDATED).toLocaleDateString("de-DE")}` : ""}<br>Quellen: LibriVox · ARD Sounds · Deutschlandfunk<br>verlinkt: Vorleser.net · Ohrka</div>`;
 }
 function vCat(name) {
   setTop(name, true); setTab("home");
-  const list = sortList(BOOKS.filter(b => b.c === name && (!ui.form || b.f === ui.form)));
+  const list = sortList(BOOKS.filter(b => b.c === name && vis(b) && (!ui.form || b.f === ui.form)));
   view.innerHTML = `<div class="seg">${["", "Lesung", "Hörspiel"].map(f => `<button data-form="${f}" class="${ui.form === f ? "on" : ""}">${f || "Alle"}</button>`).join("")}</div>
     <div class="tools"><select id="sortsel">${[["title", "Titel A–Z"], ["author", "Autor A–Z"], ["long", "Längste zuerst"], ["short", "Kürzeste zuerst"]].map(([v, l]) => `<option value="${v}" ${ui.sort === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-    <span style="color:var(--muted);font-size:14px">${list.length} Titel</span></div>` +
+    <span style="color:var(--muted);font-size:14px">${list.length} Titel</span></div><div class="tools">${extToggle()}</div>` +
     (list.length ? listWithMore(list) : `<div class="empty">Keine Titel für diesen Filter.</div>`);
   $("#sortsel").onchange = e => { ui.sort = e.target.value; ui.shown = 60; render(); };
 }
@@ -277,15 +292,18 @@ async function vBook(id) {
   const resume = p && !p.done && p.pos > 5;
   view.innerHTML = `<div class="hero">${cover(b)}<h1>${esc(b.t)}</h1><div class="au">${esc(b.a || "")}</div>
     <div class="chips"><span class="chip">${esc(b.c)}</span><span class="chip">${esc(b.f)}</span><span class="chip">${dur(b.d)}</span><span class="chip">${b.p} ${b.p == 1 ? "Teil" : "Teile"}</span><span class="chip">${esc(b.st ? b.st : b.src)}</span></div></div>
-    <button class="btn pri" data-play="${esc(id)}">${ICON.play}${resume ? `Fortsetzen · Teil ${p.i + 1}, ${fmt(p.t)}` : p?.done ? "Noch einmal hören" : "Abspielen"}</button>
+    ${b.ext ? `<a class="btn pri" href="${esc(b.url)}" target="_blank" rel="noopener" style="text-decoration:none">${ICON.play}Bei ${esc(b.src)} anhören ↗</a>
+      <p style="color:var(--muted);font-size:13px;margin:8px 0 0;text-align:center">Dieses Hörbuch wird auf der Seite von ${esc(b.src)} abgespielt.</p>` :
+    `<button class="btn pri" data-play="${esc(id)}">${ICON.play}${resume ? `Fortsetzen · Teil ${p.i + 1}, ${fmt(p.t)}` : p?.done ? "Noch einmal hören" : "Abspielen"}</button>`}
     ${resume && p.pos / b.d > 0 ? `<div class="bar" style="margin-top:8px"><i style="width:${pct(b) * 100}%"></i></div>` : ""}
     <div class="btnrow"><button class="btn" data-save="${esc(id)}">${isSaved ? ICON.heartF + "Gemerkt" : ICON.heart + "Merken"}</button>
       <button class="btn" data-done="${esc(id)}">${ICON.check}${p?.done ? "Ungehört" : "Gehört"}</button></div>
     ${b.x ? `<p class="desc clamp" id="desc">${esc(b.x)}</p>` : ""}
-    <p style="margin:10px 0 0"><a class="link" href="${esc(b.url)}" target="_blank" rel="noopener">Bei ${esc(b.src)} ansehen ↗</a></p>
+    ${b.ext || !b.url ? "" : `<p style="margin:10px 0 0"><a class="link" href="${esc(b.url)}" target="_blank" rel="noopener">Bei ${esc(b.src)} ansehen ↗</a></p>`}
     ${b.ok ? `<p style="color:var(--muted);font-size:13px;margin:6px 0 0">✓ Vollständig: ${esc(b.ok)}</p>` : ""}
-    <h2 class="sec">Kapitel</h2><ol class="ch" id="chlist"><li class="empty">Lade …</li></ol>`;
+    ${b.ext ? "" : `<h2 class="sec">Kapitel</h2><ol class="ch" id="chlist"><li class="empty">Lade …</li></ol>`}`;
   const d = $("#desc"); if (d) d.onclick = () => d.classList.toggle("clamp");
+  if (b.ext) return;
   try {
     const tr = await loadTracks(id);
     if (location.hash !== `#/book/${encodeURIComponent(id)}`) return;
@@ -313,7 +331,7 @@ function vSearch() {
   setTop("Suche"); setTab("search");
   view.innerHTML = `<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
     <input id="q" type="search" placeholder="Titel, Autor, Sprecher, Stichwort" value="${esc(ui.q)}" autocomplete="off" enterkeyhint="search"></div>
-    <div class="seg">${["", "Lesung", "Hörspiel"].map(f => `<button data-form="${f}" class="${ui.form === f ? "on" : ""}">${f || "Alle"}</button>`).join("")}</div><div id="res"></div>`;
+    <div class="seg">${["", "Lesung", "Hörspiel"].map(f => `<button data-form="${f}" class="${ui.form === f ? "on" : ""}">${f || "Alle"}</button>`).join("")}</div><div class="tools">${extToggle()}</div><div id="res"></div>`;
   const q = $("#q");
   q.oninput = () => { ui.q = q.value; ui.shown = 60; results(); };
   results();
@@ -324,7 +342,7 @@ function results() {
   if (!words.length) { res.innerHTML = `<div class="empty">Suche in ${BOOKS.length} Hörbüchern.</div>`; return; }
   const scored = [];
   for (const b of BOOKS) {
-    if (ui.form && b.f !== ui.form) continue;
+    if ((ui.form && b.f !== ui.form) || !vis(b)) continue;
     const head = norm(`${b.t} ${b.a || ""}`), all = head + " " + norm(`${b.c} ${b.st || ""} ${b.x || ""}`);
     if (words.every(w => all.includes(w))) scored.push([words.every(w => head.includes(w)) ? 0 : 1, b]);
   }
@@ -338,17 +356,108 @@ function installHint() {
   return `<div id="install" style="display:flex"><div style="flex:1"><b>Als App installieren</b>Tippe unten in Safari auf <b style="display:inline">Teilen</b> und dann auf <b style="display:inline">„Zum Home-Bildschirm“</b>.</div><button data-hintoff aria-label="Ausblenden">×</button></div>`;
 }
 
+/* ---------- Podcasts ---------- */
+const relDate = iso => { if (!iso) return ""; const d = new Date(iso), days = Math.floor((Date.now() - d) / 864e5);
+  return days <= 0 ? "heute" : days === 1 ? "gestern" : days < 7 ? `vor ${days} Tagen` : d.toLocaleDateString("de-DE", { day: "numeric", month: "short", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" }); };
+function registerPods(data) {
+  PODS = data.podcasts || []; PODBY = {};
+  for (const pod of PODS) {
+    PODBY[pod.id] = pod;
+    for (const e of pod.eps || []) {
+      BY[e.id] = { id: e.id, t: e.t, a: pod.name, src: "Podcast", st: pod.name, img: e.img || pod.img, d: e.d, p: 1, f: "Podcast", c: "Podcast", x: e.x, url: "", pod: pod.id, date: e.date };
+      trackCache[e.id] = [{ t: e.t, u: e.u, d: e.d }];
+    }
+  }
+}
+const podVisible = pod => !podHide.includes(pod.id);
+const isNew = e => !progress[e.id]?.done && (Date.now() - new Date(e.date || 0)) < 14 * 864e5;
+function epRowHTML(e, showPod = true) {
+  const b = BY[e.id], p = pct(b), done = progress[e.id]?.done;
+  return `<button class="row" data-play="${esc(e.id)}">${showPod ? cover(b) : ""}<div class="info"><div class="tt" style="${done ? "color:var(--muted)" : ""}">${esc(e.t)}</div>
+    <div class="ta">${showPod ? esc(b.a) + " · " : ""}${relDate(e.date)}${e.d ? " · " + dur(e.d) : ""}${done ? " · gehört ✓" : ""}</div>
+    ${p > 0 && p < 1 ? `<div class="bar"><i style="width:${p * 100}%"></i></div>` : ""}</div></button>`;
+}
+function vPods() {
+  setTop("Podcasts"); setTab("pods");
+  const vis = PODS.filter(podVisible);
+  if (!PODS.length) { view.innerHTML = `<div class="empty">Noch keine Podcasts geladen.<br>Sie erscheinen nach dem nächsten Abgleich.</div>` + addBtn(); return; }
+  const fresh = vis.flatMap(pod => (pod.eps || []).filter(isNew).slice(0, 3)).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 20);
+  view.innerHTML = (fresh.length ? `<h2 class="sec">Neue Folgen</h2>${fresh.map(e => epRowHTML(e)).join("")}` : "") +
+    `<h2 class="sec">Deine Podcasts</h2><div class="pgrid">${vis.map(pod => { const n = (pod.eps || []).filter(isNew).length;
+      return `<button class="ptile" data-pod="${esc(pod.id)}">${cover({ t: pod.name, img: pod.img })}<div class="tt">${esc(pod.name)}</div>${n ? `<div class="nw">${n} neu</div>` : ""}</button>`; }).join("")}</div>` +
+    addBtn() + (PODS.length > vis.length ? `<div class="foot"><button class="link" data-showhidden>${PODS.length - vis.length} ausgeblendete anzeigen</button></div>` : "");
+}
+function vPod(pid) {
+  const pod = PODBY[pid]; setTab("pods");
+  if (!pod) { setTop("Podcast", true); view.innerHTML = `<div class="empty">Podcast nicht gefunden.</div>`; return; }
+  setTop(pod.name, true);
+  const hidden = podHide.includes(pid);
+  view.innerHTML = `<div class="hero">${cover({ t: pod.name, img: pod.img })}<h1>${esc(pod.name)}</h1><div class="au">${esc(pod.author || "")}</div></div>
+    ${pod.eps?.length ? `<button class="btn pri" data-play="${esc(pod.eps[0].id)}" style="margin-top:14px">${ICON.play}Neueste Folge abspielen</button>` : ""}
+    <div class="btnrow"><button class="btn" data-hidepod="${esc(pid)}">${hidden ? "Wieder einblenden" : "Ausblenden"}</button></div>
+    ${pod.desc ? `<p class="desc clamp" id="desc">${esc(pod.desc)}</p>` : ""}
+    <h2 class="sec">Folgen</h2>${(pod.eps || []).map(e => epRowHTML(e, false)).join("") || `<div class="empty">Keine Folgen.</div>`}`;
+  const d = $("#desc"); if (d) d.onclick = () => d.classList.toggle("clamp");
+}
+function repoEditUrl() {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/i), repo = location.pathname.split("/").filter(Boolean)[0];
+  return m && repo ? `https://github.com/${m[1]}/${repo}/edit/main/podcasts.txt` : null;
+}
+const addBtn = () => `<button class="addbtn" data-addpod>＋ Podcast hinzufügen</button>`;
+function itunesSearch(term) {
+  return new Promise((resolve, reject) => {
+    const cb = "itcb" + Date.now(), sc = document.createElement("script");
+    const t = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 10000);
+    const cleanup = () => { clearTimeout(t); delete window[cb]; sc.remove(); };
+    window[cb] = d => { cleanup(); resolve(d.results || []); };
+    sc.onerror = () => { cleanup(); reject(new Error("load")); };
+    sc.src = `https://itunes.apple.com/search?media=podcast&entity=podcast&country=DE&limit=15&term=${encodeURIComponent(term)}&callback=${cb}`;
+    document.head.appendChild(sc);
+  });
+}
+function openAddPod() {
+  const m = $("#menu"), box = $("#menubox");
+  box.innerHTML = `<h3>Podcast hinzufügen</h3><div class="search" style="margin:0 0 6px"><input id="pq" type="search" placeholder="Name des Podcasts" enterkeyhint="search" autocomplete="off"></div>
+    <div id="pres" style="max-height:52vh;overflow:auto"></div><button data-v="__x" style="font-weight:600">Schließen</button>`;
+  m.style.display = "flex";
+  const inp = $("#pq"); setTimeout(() => inp.focus(), 50);
+  let timer;
+  inp.oninput = () => { clearTimeout(timer); timer = setTimeout(async () => {
+    const q = inp.value.trim(), out = $("#pres"); if (q.length < 2) { out.innerHTML = ""; return; }
+    out.innerHTML = `<div class="empty" style="padding:16px">Suche …</div>`;
+    try {
+      const res = await itunesSearch(q), have = new Set(PODS.map(p => norm(p.name)));
+      out.innerHTML = res.filter(r => r.feedUrl).map(r => `<div class="sr"><img src="${esc(r.artworkUrl100 || "")}" alt=""><div class="x">${esc(r.collectionName)}<small>${esc(r.artistName || "")}</small></div>
+        ${have.has(norm(r.collectionName)) ? `<button class="had" disabled>✓ dabei</button>` : `<button data-addname="${esc(r.collectionName)}" data-addfeed="${esc(r.feedUrl)}">Hinzufügen</button>`}</div>`).join("") || `<div class="empty" style="padding:16px">Nichts gefunden.</div>`;
+    } catch { out.innerHTML = `<div class="empty" style="padding:16px">Suche gerade nicht möglich.</div>`; }
+  }, 400); };
+  m.onclick = async e => {
+    const b = e.target.closest("button"); if (!b) { if (e.target === m) m.style.display = "none"; return; }
+    if (b.dataset.v === "__x") { m.style.display = "none"; return; }
+    if (b.dataset.addfeed) {
+      const line = b.dataset.addfeed, url = repoEditUrl();
+      try { await navigator.clipboard.writeText(line); } catch {}
+      box.innerHTML = `<h3>Fast geschafft</h3><p style="font-size:15px;line-height:1.5;margin:4px 4px 12px">Die Adresse von <b>${esc(b.dataset.addname)}</b> ist kopiert.<br>
+        Jetzt in GitHub die Datei <b>podcasts.txt</b> öffnen, ganz unten <b>einfügen</b> und <b>Commit changes</b> tippen. Nach ein paar Minuten ist der Podcast hier.</p>
+        <p style="font-size:12.5px;color:var(--muted);word-break:break-all;margin:0 4px 12px">${esc(line)}</p>
+        ${url ? `<a class="btn pri" href="${esc(url)}" target="_blank" rel="noopener" style="text-decoration:none;margin-bottom:6px">podcasts.txt bei GitHub öffnen ↗</a>` : ""}
+        <button data-v="__x" style="font-weight:600">Fertig</button>`;
+    }
+  };
+}
+
 /* ---------- Router ---------- */
 function render() {
   const h = decodeURIComponent(location.hash.slice(2));
   const [r, ...rest] = h.split("/"), arg = rest.join("/");
-  if (r === "cat") vCat(arg); else if (r === "book") vBook(arg); else if (r === "lib") vLib(); else if (r === "search") vSearch(); else vHome();
+  if (r === "pods") vPods(); else if (r === "pod") vPod(arg);
+  else if (r === "cat") vCat(arg); else if (r === "book") vBook(arg); else if (r === "lib") vLib(); else if (r === "search") vSearch(); else vHome();
 }
 const go = (h) => { if (location.hash !== h) { location.hash = h; } else render(); };
 window.addEventListener("hashchange", () => { ui.shown = 60; render(); window.scrollTo(0, 0); });
 window.addEventListener("scroll", () => $("#top").classList.toggle("scrolled", scrollY > 4), { passive: true });
 $("#back").onclick = () => { if (history.length > 1) history.back(); else go("#/"); };
-document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => go({ home: "#/", lib: "#/lib", search: "#/search" }[b.dataset.tab]));
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => go({ home: "#/", pods: "#/pods", lib: "#/lib", search: "#/search" }[b.dataset.tab]));
 
 view.addEventListener("click", e => {
   const t = e.target.closest("button,a"); if (!t) return;
@@ -359,6 +468,11 @@ view.addEventListener("click", e => {
   if (d.more !== undefined) { ui.shown += 60; return location.hash.startsWith("#/search") ? results() : render(); }
   if (d.form !== undefined) { ui.form = d.form; ui.shown = 60; return render(); }
   if (d.lib) { ui.lib = d.lib; return render(); }
+  if (d.pod) return go(`#/pod/${encodeURIComponent(d.pod)}`);
+  if (d.addpod !== undefined) return openAddPod();
+  if (d.hidepod) { podHide = podHide.includes(d.hidepod) ? podHide.filter(x => x !== d.hidepod) : [...podHide, d.hidepod]; store.set("hf_podhide", podHide); return render(); }
+  if (d.showhidden !== undefined) { podHide = []; store.set("hf_podhide", podHide); return render(); }
+  if (d.noext !== undefined) { ui.noext = !ui.noext; store.set("hf_noext", ui.noext); ui.shown = 60; return render(); }
   if (d.shuffle !== undefined) { shuffleSeed = Math.random(); return render(); }
   if (d.hintoff !== undefined) { store.set("hf_hint_off", true); return render(); }
   if (d.save) { saved = saved.includes(d.save) ? saved.filter(x => x !== d.save) : [d.save, ...saved]; store.set("hf_saved", saved); return render(); }
@@ -386,6 +500,7 @@ async function loadTracks(id) {
 }
 async function playBook(id, i = null) {
   const b = BY[id]; if (!b) return;
+  if (b.ext) { window.open(b.url, "_blank", "noopener"); return; }
   if (P.book?.id === id && i === null) { togglePlay(); openSheet(); return; }
   let tracks;
   try { tracks = await loadTracks(id); } catch { alert("Kapitel konnten nicht geladen werden. Bitte Internetverbindung prüfen."); return; }
@@ -511,9 +626,9 @@ function updatePlayerUI() {
   $("#mini").style.display = "flex";
   $("#minicv").outerHTML = cover(b, "cv").replace('<div class="cv"', '<button class="cv" id="minicv"').replace(/<\/div>$/, "</button>");
   $("#minicv").onclick = openSheet;
-  $("#minitt").textContent = b.t; $("#minita").textContent = `Teil ${P.i + 1}/${P.tracks.length} · ${tr.t}`;
+  $("#minitt").textContent = b.t; $("#minita").textContent = P.tracks.length > 1 ? `Teil ${P.i + 1}/${P.tracks.length} · ${tr.t}` : byline(b);
   $("#bigcv").outerHTML = cover(b, "cv bigcv").replace('class="cv bigcv"', 'class="cv bigcv" id="bigcv"');
-  $("#stt").textContent = b.t; $("#sch").textContent = `${byline(b)} · Teil ${P.i + 1} von ${P.tracks.length}${tr.t && !/^teil \d+$/i.test(tr.t) ? " · " + tr.t : ""}`;
+  $("#stt").textContent = b.t; $("#sch").textContent = P.tracks.length > 1 ? `${byline(b)} · Teil ${P.i + 1} von ${P.tracks.length}${tr.t && !/^teil \d+$/i.test(tr.t) ? " · " + tr.t : ""}` : `${byline(b)}${b.date ? " · " + relDate(b.date) : ""}`;
   $("#spdv").textContent = spdLabel(speed); $("#spd").classList.toggle("act", speed !== 1);
   $("#chsv").textContent = `${P.i + 1}/${P.tracks.length}`;
   document.querySelectorAll("ol.ch li").forEach((li, k) => li.classList.toggle("cur", k === P.i && (li.parentElement.id === "sheetch" || location.hash.includes(encodeURIComponent(b.id)))));
@@ -549,6 +664,7 @@ async function init() {
     BOOKS = data.books || []; UPDATED = data.updated;
     BY = Object.fromEntries(BOOKS.map(b => [b.id, b]));
   } catch { view.innerHTML = `<div class="empty">Katalog konnte nicht geladen werden. Bitte Internetverbindung prüfen.</div>`; return; }
+  try { const r = await fetch("podcasts.json", { cache: "no-cache" }); if (r.ok) registerPods(await r.json()); } catch {}
   render(); restoreLast();
 }
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
