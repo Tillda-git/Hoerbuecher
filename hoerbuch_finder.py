@@ -209,18 +209,32 @@ def librivox_to_book(b: dict) -> tuple[dict | None, str]:
 
 
 def crawl_librivox(rejected: dict) -> list[dict]:
-    books, offset, limit = [], 0, 1000
+    try:
+        return crawl_librivox_api(rejected)
+    except RuntimeError as e:
+        log(f"LibriVox-API nicht nutzbar ({e}) – frage den LibriVox-Bestand im Internet Archive ab …")
+        return crawl_librivox_archive(rejected)
+
+
+def crawl_librivox_api(rejected: dict) -> list[dict]:
+    books, offset = [], 0
+    limit = 1000
     log("LibriVox: lade Gesamtkatalog (die API filtert nicht nach Sprache) …")
     while True:
         url = f"{LIBRIVOX_API}?format=json&limit={limit}&offset={offset}"
         try:
             data = http_json(url, timeout=180)
         except RuntimeError:
+            if offset == 0 and limit > 100:
+                limit = 100                # manche Server lehnen große Seiten ab
+                continue
             if offset == 0:
                 raise
-            break                      # Ende erreicht oder Seite fehlerhaft
+            break
         items = data.get("books") if isinstance(data, dict) else None
         if not items:
+            if offset == 0:
+                raise RuntimeError("leere Antwort")
             break
         for b in items:
             book, reason = librivox_to_book(b)
@@ -228,7 +242,8 @@ def crawl_librivox(rejected: dict) -> list[dict]:
                 books.append(book)
             elif reason != "andere Sprache":
                 rejected[f"LibriVox: {reason}"] = rejected.get(f"LibriVox: {reason}", 0) + 1
-        log(f"LibriVox: {offset + len(items)} Katalogeinträge geprüft, {len(books)} deutsche Hörbücher")
+        if (offset // limit) % 10 == 0 or len(items) < limit:
+            log(f"LibriVox: {offset + len(items)} Katalogeinträge geprüft, {len(books)} deutsche Hörbücher")
         if len(items) < limit:
             break
         offset += limit
@@ -236,9 +251,74 @@ def crawl_librivox(rejected: dict) -> list[dict]:
     return books
 
 
+def parse_runtime(v) -> int:
+    """'5:23:11', '83:10', '323 min' oder Sekunden → Sekunden."""
+    if v is None:
+        return 0
+    v = str(v[0] if isinstance(v, list) else v).strip()
+    if ":" in v:
+        parts = [to_int(x) for x in v.split(":")]
+        secs = 0
+        for x in parts:
+            secs = secs * 60 + x
+        return secs
+    m = re.match(r"([\d.]+)\s*min", v, re.I)
+    return int(float(m.group(1)) * 60) if m else to_int(v)
+
+
+def crawl_librivox_archive(rejected: dict) -> list[dict]:
+    """LibriVox-Aufnahmen über das Internet Archive (dort liegen nur fertige Projekte)."""
+    q = urllib.parse.quote("collection:librivoxaudio AND language:(German OR german OR deu OR ger OR Deutsch)")
+    fl = "".join(f"&fl[]={f}" for f in ("identifier", "title", "creator", "subject", "runtime", "description"))
+    books, page = [], 1
+    while True:
+        data = http_json(f"https://archive.org/advancedsearch.php?q={q}{fl}&rows=1000&page={page}&output=json",
+                         timeout=120)
+        docs = (data.get("response") or {}).get("docs") or []
+        for d in docs:
+            ident = d.get("identifier")
+            secs = parse_runtime(d.get("runtime"))
+            if not ident:
+                continue
+            if secs and secs < CONFIG["min_minutes"] * 60:
+                rejected["LibriVox: zu kurz"] = rejected.get("LibriVox: zu kurz", 0) + 1
+                continue
+            title = re.sub(r"\s*\(?librivox\)?\s*$", "", html.unescape(str(d.get("title") or "")), flags=re.I).strip()
+            subj = d.get("subject") or []
+            subj = " ".join(subj) if isinstance(subj, list) else str(subj)
+            creator = d.get("creator") or []
+            names = creator if isinstance(creator, list) else re.split(r"\s*;\s*", str(creator))
+            # "Kafka, Franz" → "Franz Kafka"
+            creator = ", ".join(" ".join(reversed(n.split(",", 1))).strip() if n.count(",") == 1 else n
+                                for n in names if n)
+            desc = d.get("description") or ""
+            desc = " ".join(desc) if isinstance(desc, list) else str(desc)
+            books.append({
+                "id": f"librivox:ia-{ident}", "source": "LibriVox", "title": title, "author": creator,
+                "category": classify(subj, f"{title} {desc[:300]}"), "genres": [], "form": "Lesung",
+                "duration": secs, "parts": 0, "description": clean_text(desc),
+                "url": f"https://archive.org/details/{ident}", "cover": f"https://archive.org/services/img/{ident}",
+                "links": {"Internet Archive": f"https://archive.org/details/{ident}"}, "archive_id": ident,
+                "complete_reason": "abgeschlossenes LibriVox-Projekt (Internet Archive)",
+            })
+        log(f"LibriVox (Internet Archive): Seite {page}, {len(books)} deutsche Hörbücher")
+        if len(docs) < 1000:
+            break
+        page += 1
+        time.sleep(0.5)
+    if not books:
+        raise RuntimeError("Internet Archive lieferte keine deutschen LibriVox-Titel")
+    return books
+
+
 def librivox_tracks(book_id: str, archive_id: str = "") -> list[dict]:
     pid = book_id.split(":", 1)[1]
+    if pid.startswith("ia-"):
+        archive_id = archive_id or pid[3:]
+        pid = ""
     try:
+        if not pid:
+            raise RuntimeError("nur Internet Archive")
         data = http_json(f"https://librivox.org/api/feed/audiotracks/?project_id={pid}&format=json", timeout=40)
         secs = data.get("sections") or []
         tracks = [{"title": clean_text(s.get("title"), 200) or f"Teil {s.get('section_number')}",
@@ -252,7 +332,7 @@ def librivox_tracks(book_id: str, archive_id: str = "") -> list[dict]:
         meta = http_json(f"https://archive.org/metadata/{urllib.parse.quote(archive_id)}", timeout=40)
         files = [f for f in meta.get("files", []) if f.get("format") in ("64Kbps MP3", "VBR MP3")]
         small = [f for f in files if f.get("format") == "64Kbps MP3"]
-        return [{"title": f.get("title") or f.get("name"), "duration": to_int(f.get("length")),
+        return [{"title": f.get("title") or f.get("name"), "duration": parse_runtime(f.get("length")),
                  "url": f"https://archive.org/download/{archive_id}/{urllib.parse.quote(f['name'])}"}
                 for f in sorted(small or files, key=lambda f: f.get("name", ""))]
     return []
