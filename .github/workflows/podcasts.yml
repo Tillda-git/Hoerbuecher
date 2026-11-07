@@ -1,3 +1,4 @@
+name: Podcasts aktualisieren
 on:
   schedule:
     - cron: "41 */2 * * *"     # alle 2 Stunden
