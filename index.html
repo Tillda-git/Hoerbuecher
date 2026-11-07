@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hörbücher">
+<meta name="theme-color" content="#f6f3ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Hörbücher</title>
+<style>
+:root{--bg:#f6f3ee;--card:#fffdf9;--ink:#1f1c18;--muted:#776e63;--line:#e6dfd4;--accent:#b4532a;--on-accent:#fff;--chip:#eee7dc;
+  --top:env(safe-area-inset-top);--bot:env(safe-area-inset-bottom)}
+@media (prefers-color-scheme:dark){:root{--bg:#141210;--card:#1f1c19;--ink:#f1ebe2;--muted:#a3998c;--line:#332e28;--accent:#e2804f;--on-accent:#1a120d;--chip:#2a2622}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input,select{font:inherit;color:inherit}
+.serif{font-family:"New York",Georgia,"Times New Roman",serif}
+/* Kopfzeile */
+#top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  padding:calc(var(--top) + 8px) 16px 8px;display:flex;align-items:center;gap:8px;min-height:52px;border-bottom:1px solid transparent}
+#top.scrolled{border-bottom-color:var(--line)}
+#back{font-size:17px;color:var(--accent);display:none;align-items:center;gap:2px;margin-left:-4px;padding:6px 4px}
+#back svg{width:22px;height:22px}
+#title{font:700 28px/1.15 "New York",Georgia,serif;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#top.sub #title{font-size:17px;font-family:inherit;font-weight:600;text-align:center}
+#top.sub #back{display:flex}
+#view{padding:4px 16px calc(150px + var(--bot))}
+h2.sec{font:700 21px/1.2 "New York",Georgia,serif;margin:22px 0 10px;display:flex;justify-content:space-between;align-items:baseline}
+h2.sec button{font:500 15px -apple-system,sans-serif;color:var(--accent)}
+/* Kacheln & Listen */
+.hscroll{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding:0 16px;align-items:flex-start;margin:0 -16px;padding:0 16px 6px;scrollbar-width:none}
+.hscroll::-webkit-scrollbar{display:none}
+.tile{flex:0 0 132px;scroll-snap-align:start;text-align:left;display:flex;flex-direction:column;justify-content:flex-start}
+.tile .cv{width:132px;height:132px;border-radius:10px}
+.tile .tt{font-weight:600;font-size:14px;margin-top:6px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tile .ta{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cv{background:var(--chip) center/cover no-repeat;position:relative;overflow:hidden;display:grid;place-items:center;flex-shrink:0}
+.cv .ini{font:600 40px Georgia,serif;color:var(--muted);opacity:.5}
+.bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.cats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cat{border-radius:12px;padding:14px 12px;min-height:78px;align-items:flex-start;text-align:left;color:#fff;display:flex;flex-direction:column;justify-content:space-between;font-weight:650;font-size:15px;line-height:1.2}
+.cat small{font-weight:500;opacity:.85;font-size:13px}
+.row{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);width:100%;text-align:left}
+.row .cv{width:60px;height:60px;border-radius:8px}
+.row .cv .ini{font-size:24px}
+.row .info{flex:1;min-width:0}
+.row .tt{font-weight:600;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.row .ta,.row .tm{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg{display:flex;background:var(--chip);border-radius:9px;padding:2px;margin:8px 0 6px}
+.seg button{flex:1;padding:6px 4px;border-radius:7px;font-size:14px;font-weight:500}
+.seg button.on{background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.tools{display:flex;gap:8px;align-items:center;margin:4px 0}
+.tools select{background:var(--chip);border:0;border-radius:8px;padding:6px 8px;font-size:14px}
+.more{display:block;width:100%;padding:14px;color:var(--accent);font-weight:600}
+.empty{color:var(--muted);text-align:center;padding:40px 10px}
+/* Buchseite */
+.hero{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:6px}
+.hero .cv{width:200px;height:200px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.hero .cv .ini{font-size:80px}
+.hero h1{font:700 24px/1.2 "New York",Georgia,serif;margin:16px 0 4px}
+.hero .au{color:var(--muted);font-size:16px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:10px 0}
+.chip{font-size:12.5px;background:var(--chip);color:var(--muted);padding:3px 9px;border-radius:99px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;border-radius:12px;font-weight:650;font-size:16px;background:var(--chip)}
+.btn.pri{background:var(--accent);color:var(--on-accent)}
+.btn svg{width:20px;height:20px}
+.btnrow{display:flex;gap:10px;margin:14px 0 4px}
+.desc{color:var(--ink);opacity:.9;font-size:15px;line-height:1.5;margin:14px 0 0}
+.desc.clamp{display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+.link{color:var(--accent);font-size:14px;font-weight:500}
+ol.ch{list-style:none;padding:0;margin:8px 0 0}
+ol.ch li button{display:flex;gap:10px;width:100%;text-align:left;padding:11px 0;border-bottom:1px solid var(--line);font-size:15px}
+ol.ch li .n{color:var(--muted);width:26px;flex-shrink:0;font-variant-numeric:tabular-nums}
+ol.ch li .x{flex:1;min-width:0}
+ol.ch li .d{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+ol.ch li.cur button{color:var(--accent);font-weight:600}
+ol.ch li.cur .n{color:var(--accent)}
+/* Suche */
+.search{display:flex;align-items:center;gap:8px;background:var(--chip);border-radius:11px;padding:9px 12px;margin:6px 0 8px}
+.search input{flex:1;border:0;background:none;outline:none;font-size:17px;min-width:0}
+.search svg{width:18px;height:18px;color:var(--muted)}
+/* Tabbar & Miniplayer */
+#tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-top:1px solid var(--line);padding:6px 0 calc(var(--bot) + 4px)}
+#tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;font-weight:500;color:var(--muted)}
+#tabs button svg{width:25px;height:25px}
+#tabs button.on{color:var(--accent)}
+#mini{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 62px);z-index:31;display:none;align-items:center;gap:10px;background:var(--card);
+  border-radius:12px;padding:8px 10px;box-shadow:0 6px 24px rgba(0,0,0,.18);overflow:hidden}
+#mini .cv{width:42px;height:42px;border-radius:7px}
+#mini .cv .ini{font-size:18px}
+#mini .info{flex:1;min-width:0;text-align:left}
+#mini .tt{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mini .ta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mini .pp{width:40px;height:40px;display:grid;place-items:center}
+#mini .pp svg{width:26px;height:26px}
+#mini .line{position:absolute;left:0;bottom:0;height:2px;background:var(--accent)}
+/* Vollbild-Player */
+#sheet{position:fixed;inset:0;z-index:50;background:var(--bg);transform:translateY(100%);transition:transform .32s cubic-bezier(.2,.8,.2,1);
+  display:flex;flex-direction:column;padding:calc(var(--top) + 6px) 24px calc(var(--bot) + 16px);overflow-y:auto}
+#sheet.open{transform:none}
+#sheet .grab{align-self:center;padding:6px 30px 14px}
+#sheet .grab span{display:block;width:40px;height:5px;border-radius:3px;background:var(--line)}
+#sheet .bigcv{width:min(82vw,340px);height:min(82vw,340px);border-radius:16px;align-self:center;box-shadow:0 18px 40px rgba(0,0,0,.25);margin:8px 0 22px}
+#sheet .bigcv .ini{font-size:110px}
+#sheet .stt{font:700 21px/1.25 "New York",Georgia,serif;text-align:center}
+#sheet .sch{color:var(--muted);text-align:center;font-size:14.5px;margin-top:4px;min-height:20px}
+#seek{width:100%;margin:22px 0 4px;accent-color:var(--accent);height:24px}
+.times{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ctrl{display:flex;justify-content:space-between;align-items:center;margin:14px 4px 6px}
+.ctrl button svg{width:32px;height:32px}
+.ctrl .big{width:72px;height:72px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center}
+.ctrl .big svg{width:36px;height:36px}
+.ctrl .skip{position:relative;width:46px;height:46px;display:grid;place-items:center}
+.ctrl .skip b{position:absolute;font-size:10.5px;font-weight:700;top:17px}
+.opts{display:flex;justify-content:space-around;margin-top:18px}
+.opts button{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;color:var(--muted);min-width:76px}
+.opts button b{font-size:15px;color:var(--ink);font-weight:650}
+.opts button.act b{color:var(--accent)}
+#sheetch{margin-top:18px;display:none}
+/* Auswahlmenü */
+#menu{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.35);display:none;align-items:flex-end}
+#menu .box{background:var(--card);width:100%;border-radius:16px 16px 0 0;padding:8px 16px calc(var(--bot) + 14px)}
+#menu .box h3{text-align:center;font-size:14px;color:var(--muted);font-weight:500;margin:10px 0}
+#menu .box button{display:block;width:100%;padding:14px;font-size:17px;border-top:1px solid var(--line)}
+#menu .box button.on{color:var(--accent);font-weight:650}
+#install{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;font-size:14px;display:none;gap:10px;align-items:flex-start}
+#install b{display:block;margin-bottom:2px}
+#install button{color:var(--muted);font-size:20px;line-height:1}
+.foot{color:var(--muted);font-size:12.5px;text-align:center;margin-top:30px}
+</style>
+</head>
+<body>
+<header id="top"><button id="back" aria-label="Zurück"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg><span>Zurück</span></button><h1 id="title">Entdecken</h1></header>
+<main id="view"></main>
+
+<div id="mini"><button class="cv" id="minicv"></button><button class="info" id="miniinfo"><div class="tt" id="minitt"></div><div class="ta" id="minita"></div></button><button class="pp" id="minipp" aria-label="Abspielen/Pause"></button><div class="line" id="miniline"></div></div>
+
+<nav id="tabs">
+  <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>Entdecken</button>
+  <button data-tab="lib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16M10 4v16M15 4.5l4.5 15"/></svg>Bibliothek</button>
+  <button data-tab="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Suche</button>
+</nav>
+
+<section id="sheet" aria-label="Player">
+  <button class="grab" id="grab" aria-label="Player schließen"><span></span></button>
+  <div class="cv bigcv" id="bigcv"></div>
+  <div class="stt" id="stt"></div>
+  <div class="sch" id="sch"></div>
+  <input type="range" id="seek" min="0" max="100" step="1" value="0" aria-label="Position">
+  <div class="times"><span id="tcur">0:00</span><span id="tleft">-0:00</span></div>
+  <div class="ctrl">
+    <button id="prev" aria-label="Voriges Kapitel"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9.5 12z"/></svg></button>
+    <button class="skip" id="rew" aria-label="15 Sekunden zurück"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg><b>15</b></button>
+    <button class="big" id="pp" aria-label="Abspielen/Pause"></button>
+    <button class="skip" id="fwd" aria-label="30 Sekunden vor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/></svg><b>30</b></button>
+    <button id="next" aria-label="Nächstes Kapitel"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l10.5-7z"/></svg></button>
+  </div>
+  <div class="opts">
+    <button id="spd"><b id="spdv">1×</b>Tempo</button>
+    <button id="slp"><b id="slpv">Aus</b>Schlaf-Timer</button>
+    <button id="chs"><b id="chsv">1/1</b>Kapitel</button>
+  </div>
+  <ol class="ch" id="sheetch"></ol>
+</section>
+
+<div id="menu"><div class="box" id="menubox"></div></div>
+
+<script>
+"use strict";
+/* ---------- Grundlagen ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const norm = s => (s || "").toLocaleLowerCase("de").normalize("NFD").replace(/[̀-ͯ]/g, "");
+const store = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+const fmt = s => { s = Math.max(0, Math.floor(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}` : `${m}:${String(x).padStart(2,"0")}`; };
+const dur = s => { s = +s || 0; const h = Math.floor(s / 3600), m = Math.round(s % 3600 / 60); return h ? `${h} Std ${m} Min` : `${m} Min`; };
+const safeName = id => id.replace(/[^A-Za-z0-9_-]/g, "_");
+const hue = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const ICON = {
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12.5-7.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/></svg>',
+  heartF: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
+};
+
+let BOOKS = [], BY = {}, UPDATED = null;
+let progress = store.get("hf_progress", {});     // id -> {i, t, pos, ts, done}
+let saved = store.get("hf_saved", []);           // gemerkte IDs (neueste zuerst)
+let speed = store.get("hf_speed", 1);
+const trackCache = {};
+const ui = { form: "", sort: "title", lib: "cont", q: "", shown: 60 };
+
+function cover(b, cls = "cv") {
+  return `<div class="${cls}" style="${b.img ? `background-image:url('${esc(b.img)}')` : `background:hsl(${hue(b.t)} 30% 85%)`}">${b.img ? "" : `<span class="ini">${esc((b.t || "?")[0])}</span>`}</div>`;
+}
+function pct(b) { const p = progress[b.id]; if (!p) return 0; if (p.done) return 1; return b.d ? Math.min(1, (p.pos || 0) / b.d) : 0; }
+function byline(b) { return b.a || b.st || b.src; }
+
+/* ---------- Ansichten ---------- */
+const view = $("#view");
+function setTop(title, sub) {
+  $("#title").textContent = title; $("#top").classList.toggle("sub", !!sub);
+  document.title = sub ? `${title} – Hörbücher` : "Hörbücher";
+}
+function setTab(t) { document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === t)); }
+
+function rowHTML(b) {
+  const p = pct(b);
+  return `<button class="row" data-book="${esc(b.id)}">${cover(b)}<div class="info"><div class="tt">${esc(b.t)}</div>
+    <div class="ta">${esc(byline(b))}</div><div class="tm">${dur(b.d)} · ${b.p} ${b.p == 1 ? "Teil" : "Teile"} · ${esc(b.f)}${progress[b.id]?.done ? " · gehört ✓" : ""}</div>
+    ${p > 0 && p < 1 ? `<div class="bar"><i style="width:${p * 100}%"></i></div>` : ""}</div></button>`;
+}
+function tileHTML(b) {
+  const p = pct(b);
+  return `<button class="tile" data-book="${esc(b.id)}">${cover(b)}<div class="tt">${esc(b.t)}</div><div class="ta">${esc(byline(b))}</div>
+    ${p > 0 && p < 1 ? `<div class="bar"><i style="width:${p * 100}%"></i></div>` : ""}</button>`;
+}
+function listWithMore(list) {
+  return list.slice(0, ui.shown).map(rowHTML).join("") +
+    (list.length > ui.shown ? `<button class="more" data-more>Weitere ${Math.min(60, list.length - ui.shown)} anzeigen</button>` : "");
+}
+function sortList(list) {
+  const c = (a, b) => a.localeCompare(b, "de", { sensitivity: "base" });
+  const s = ui.sort;
+  return list.sort(s === "author" ? (a, b) => c(a.a || "~", b.a || "~") : s === "long" ? (a, b) => b.d - a.d : s === "short" ? (a, b) => a.d - b.d : (a, b) => c(a.t, b.t));
+}
+function continueList() {
+  return Object.entries(progress).filter(([id, p]) => BY[id] && !p.done && p.pos > 5).sort((a, b) => b[1].ts - a[1].ts).map(([id]) => BY[id]);
+}
+let shuffleSeed = Math.random();
+function picks(n) {
+  let s = shuffleSeed * 1e9; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const pool = BOOKS.filter(b => !progress[b.id]); const out = [];
+  for (let i = 0; i < n && pool.length; i++) out.push(pool.splice(Math.floor(rnd() * pool.length), 1)[0]);
+  return out;
+}
+
+function vHome() {
+  setTop("Entdecken"); setTab("home");
+  if (!BOOKS.length) { view.innerHTML = `<div class="empty">Katalog wird geladen …</div>`; return; }
+  const cont = continueList(), counts = {};
+  BOOKS.forEach(b => counts[b.c] = (counts[b.c] || 0) + 1);
+  const cats = Object.keys(counts).sort((a, b) => a.localeCompare(b, "de"));
+  view.innerHTML = installHint() +
+    (cont.length ? `<h2 class="sec">Weiterhören</h2><div class="hscroll">${cont.map(tileHTML).join("")}</div>` : "") +
+    `<h2 class="sec">Zufallsfunde <button data-shuffle>Neu mischen</button></h2><div class="hscroll">${picks(12).map(tileHTML).join("")}</div>
+     <h2 class="sec">Kategorien</h2><div class="cats">${cats.map(c => `<button class="cat" data-cat="${esc(c)}" style="background:linear-gradient(135deg,hsl(${hue(c)} 45% 42%),hsl(${(hue(c) + 35) % 360} 50% 32%))">${esc(c)}<small>${counts[c]} Titel</small></button>`).join("")}</div>
+     <div class="foot">${BOOKS.length} vollständige Hörbücher${UPDATED ? ` · Katalog vom ${new Date(UPDATED).toLocaleDateString("de-DE")}` : ""}<br>Quellen: LibriVox (gemeinfrei) · ARD Audiothek</div>`;
+}
+function vCat(name) {
+  setTop(name, true); setTab("home");
+  const list = sortList(BOOKS.filter(b => b.c === name && (!ui.form || b.f === ui.form)));
+  view.innerHTML = `<div class="seg">${["", "Lesung", "Hörspiel"].map(f => `<button data-form="${f}" class="${ui.form === f ? "on" : ""}">${f || "Alle"}</button>`).join("")}</div>
+    <div class="tools"><select id="sortsel">${[["title", "Titel A–Z"], ["author", "Autor A–Z"], ["long", "Längste zuerst"], ["short", "Kürzeste zuerst"]].map(([v, l]) => `<option value="${v}" ${ui.sort === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <span style="color:var(--muted);font-size:14px">${list.length} Titel</span></div>` +
+    (list.length ? listWithMore(list) : `<div class="empty">Keine Titel für diesen Filter.</div>`);
+  $("#sortsel").onchange = e => { ui.sort = e.target.value; ui.shown = 60; render(); };
+}
+async function vBook(id) {
+  const b = BY[id]; setTab(null);
+  if (!b) { setTop("Nicht gefunden", true); view.innerHTML = `<div class="empty">Dieses Hörbuch ist nicht mehr im Katalog.</div>`; return; }
+  setTop(b.t, true);
+  const p = progress[id], isSaved = saved.includes(id);
+  const resume = p && !p.done && p.pos > 5;
+  view.innerHTML = `<div class="hero">${cover(b)}<h1>${esc(b.t)}</h1><div class="au">${esc(b.a || "")}</div>
+    <div class="chips"><span class="chip">${esc(b.c)}</span><span class="chip">${esc(b.f)}</span><span class="chip">${dur(b.d)}</span><span class="chip">${b.p} ${b.p == 1 ? "Teil" : "Teile"}</span><span class="chip">${esc(b.st ? b.st : b.src)}</span></div></div>
+    <button class="btn pri" data-play="${esc(id)}">${ICON.play}${resume ? `Fortsetzen · Teil ${p.i + 1}, ${fmt(p.t)}` : p?.done ? "Noch einmal hören" : "Abspielen"}</button>
+    ${resume && p.pos / b.d > 0 ? `<div class="bar" style="margin-top:8px"><i style="width:${pct(b) * 100}%"></i></div>` : ""}
+    <div class="btnrow"><button class="btn" data-save="${esc(id)}">${isSaved ? ICON.heartF + "Gemerkt" : ICON.heart + "Merken"}</button>
+      <button class="btn" data-done="${esc(id)}">${ICON.check}${p?.done ? "Ungehört" : "Gehört"}</button></div>
+    ${b.x ? `<p class="desc clamp" id="desc">${esc(b.x)}</p>` : ""}
+    <p style="margin:10px 0 0"><a class="link" href="${esc(b.url)}" target="_blank" rel="noopener">Bei ${esc(b.src)} ansehen ↗</a></p>
+    ${b.ok ? `<p style="color:var(--muted);font-size:13px;margin:6px 0 0">✓ Vollständig: ${esc(b.ok)}</p>` : ""}
+    <h2 class="sec">Kapitel</h2><ol class="ch" id="chlist"><li class="empty">Lade …</li></ol>`;
+  const d = $("#desc"); if (d) d.onclick = () => d.classList.toggle("clamp");
+  try {
+    const tr = await loadTracks(id);
+    if (location.hash !== `#/book/${encodeURIComponent(id)}`) return;
+    $("#chlist").innerHTML = chapterHTML(tr, id);
+  } catch { $("#chlist").innerHTML = `<li class="empty">Kapitel konnten nicht geladen werden. Bitte Internetverbindung prüfen.</li>`; }
+}
+function chapterHTML(tr, id) {
+  const cur = P.book?.id === id ? P.i : progress[id]?.i;
+  return tr.map((t, i) => `<li class="${i === cur ? "cur" : ""}"><button data-play="${esc(id)}" data-i="${i}"><span class="n">${i + 1}</span><span class="x">${esc(t.t)}</span><span class="d">${t.d ? fmt(t.d) : ""}</span></button></li>`).join("");
+}
+function vLib() {
+  setTop("Bibliothek"); setTab("lib");
+  const cont = continueList();
+  const sav = saved.map(id => BY[id]).filter(Boolean);
+  const done = Object.entries(progress).filter(([id, p]) => BY[id] && p.done).sort((a, b) => b[1].ts - a[1].ts).map(([id]) => BY[id]);
+  const lists = { cont, saved: sav, done };
+  const labels = { cont: `Weiterhören (${cont.length})`, saved: `Gemerkt (${sav.length})`, done: `Gehört (${done.length})` };
+  const emptyTxt = { cont: "Noch nichts angefangen. Unter „Entdecken“ findest du Hörbücher.", saved: "Tippe bei einem Hörbuch auf „Merken“, dann erscheint es hier.", done: "Fertig gehörte Hörbücher erscheinen hier." };
+  const list = lists[ui.lib];
+  view.innerHTML = `<div class="seg">${Object.keys(lists).map(k => `<button data-lib="${k}" class="${ui.lib === k ? "on" : ""}">${labels[k]}</button>`).join("")}</div>` +
+    (list.length ? list.map(rowHTML).join("") : `<div class="empty">${emptyTxt[ui.lib]}</div>`) +
+    `<div class="foot">Dein Hörfortschritt wird nur auf diesem iPhone gespeichert.</div>`;
+}
+function vSearch() {
+  setTop("Suche"); setTab("search");
+  view.innerHTML = `<div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+    <input id="q" type="search" placeholder="Titel, Autor, Sprecher, Stichwort" value="${esc(ui.q)}" autocomplete="off" enterkeyhint="search"></div>
+    <div class="seg">${["", "Lesung", "Hörspiel"].map(f => `<button data-form="${f}" class="${ui.form === f ? "on" : ""}">${f || "Alle"}</button>`).join("")}</div><div id="res"></div>`;
+  const q = $("#q");
+  q.oninput = () => { ui.q = q.value; ui.shown = 60; results(); };
+  results();
+  if (!ui.q) setTimeout(() => q.focus(), 50);
+}
+function results() {
+  const words = norm(ui.q).split(/\s+/).filter(Boolean), res = $("#res");
+  if (!words.length) { res.innerHTML = `<div class="empty">Suche in ${BOOKS.length} Hörbüchern.</div>`; return; }
+  const scored = [];
+  for (const b of BOOKS) {
+    if (ui.form && b.f !== ui.form) continue;
+    const head = norm(`${b.t} ${b.a || ""}`), all = head + " " + norm(`${b.c} ${b.st || ""} ${b.x || ""}`);
+    if (words.every(w => all.includes(w))) scored.push([words.every(w => head.includes(w)) ? 0 : 1, b]);
+  }
+  scored.sort((a, b) => a[0] - b[0] || a[1].t.localeCompare(b[1].t, "de"));
+  const list = scored.map(x => x[1]);
+  res.innerHTML = list.length ? `<div style="color:var(--muted);font-size:13px;margin:6px 0">${list.length} Treffer</div>` + listWithMore(list) : `<div class="empty">Nichts gefunden.</div>`;
+}
+function installHint() {
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent), standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  if (!ios || standalone || store.get("hf_hint_off", false)) return "";
+  return `<div id="install" style="display:flex"><div style="flex:1"><b>Als App installieren</b>Tippe unten in Safari auf <b style="display:inline">Teilen</b> und dann auf <b style="display:inline">„Zum Home-Bildschirm“</b>.</div><button data-hintoff aria-label="Ausblenden">×</button></div>`;
+}
+
+/* ---------- Router ---------- */
+function render() {
+  const h = decodeURIComponent(location.hash.slice(2));
+  const [r, ...rest] = h.split("/"), arg = rest.join("/");
+  if (r === "cat") vCat(arg); else if (r === "book") vBook(arg); else if (r === "lib") vLib(); else if (r === "search") vSearch(); else vHome();
+}
+const go = (h) => { if (location.hash !== h) { location.hash = h; } else render(); };
+window.addEventListener("hashchange", () => { ui.shown = 60; render(); window.scrollTo(0, 0); });
+window.addEventListener("scroll", () => $("#top").classList.toggle("scrolled", scrollY > 4), { passive: true });
+$("#back").onclick = () => { if (history.length > 1) history.back(); else go("#/"); };
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => go({ home: "#/", lib: "#/lib", search: "#/search" }[b.dataset.tab]));
+
+view.addEventListener("click", e => {
+  const t = e.target.closest("button,a"); if (!t) return;
+  const d = t.dataset;
+  if (d.play !== undefined) { playBook(d.play, d.i !== undefined ? +d.i : null); return; }
+  if (d.book) return go(`#/book/${encodeURIComponent(d.book)}`);
+  if (d.cat) return go(`#/cat/${encodeURIComponent(d.cat)}`);
+  if (d.more !== undefined) { ui.shown += 60; return location.hash.startsWith("#/search") ? results() : render(); }
+  if (d.form !== undefined) { ui.form = d.form; ui.shown = 60; return render(); }
+  if (d.lib) { ui.lib = d.lib; return render(); }
+  if (d.shuffle !== undefined) { shuffleSeed = Math.random(); return render(); }
+  if (d.hintoff !== undefined) { store.set("hf_hint_off", true); return render(); }
+  if (d.save) { saved = saved.includes(d.save) ? saved.filter(x => x !== d.save) : [d.save, ...saved]; store.set("hf_saved", saved); return render(); }
+  if (d.done) { const p = progress[d.done] || { i: 0, t: 0, pos: 0 }; p.done = !p.done; if (!p.done) { p.i = 0; p.t = 0; p.pos = 0; } p.ts = Date.now(); progress[d.done] = p; store.set("hf_progress", progress); return render(); }
+});
+
+/* ---------- Player ---------- */
+const audio = new Audio();
+audio.preload = "auto";
+audio.setAttribute("playsinline", "");
+const P = { book: null, tracks: [], i: 0 };
+let pendingSeek = 0, lastSave = 0, sleepAt = 0, sleepChapter = false, unlocked = false;
+// Kurzes stilles Audio: schaltet die Wiedergabe beim ersten Tippen frei (iOS-Vorgabe)
+const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+document.addEventListener("click", () => {
+  if (unlocked || P.book) return; unlocked = true;
+  audio.src = SILENT; audio.play().then(() => audio.pause()).catch(() => {});
+}, { capture: true });
+
+async function loadTracks(id) {
+  if (trackCache[id]) return trackCache[id];
+  const r = await fetch(`tracks/${safeName(id)}.json`);
+  if (!r.ok) throw new Error(r.status);
+  return (trackCache[id] = await r.json());
+}
+async function playBook(id, i = null) {
+  const b = BY[id]; if (!b) return;
+  if (P.book?.id === id && i === null) { togglePlay(); openSheet(); return; }
+  let tracks;
+  try { tracks = await loadTracks(id); } catch { alert("Kapitel konnten nicht geladen werden. Bitte Internetverbindung prüfen."); return; }
+  if (!tracks.length) return;
+  saveProgress(true);
+  const p = progress[id];
+  let t = 0;
+  if (i === null) { if (p && !p.done) { i = Math.min(p.i, tracks.length - 1); t = p.t; } else i = 0; }
+  if (p?.done) { p.done = false; }
+  P.book = b; P.tracks = tracks;
+  setTrack(i, t, true);
+  openSheet();
+}
+function setTrack(i, t, play) {
+  P.i = i; const tr = P.tracks[i];
+  pendingSeek = t || 0;
+  audio.src = tr.u;
+  audio.defaultPlaybackRate = speed; audio.playbackRate = speed;
+  if (play) audio.play().catch(() => updatePlayState());   // iOS: ggf. erneut auf Play tippen
+  updatePlayerUI(); mediaMeta(); saveProgress(true);
+}
+audio.addEventListener("loadedmetadata", () => {
+  if (pendingSeek && pendingSeek < audio.duration - 2) audio.currentTime = pendingSeek;
+  pendingSeek = 0; audio.playbackRate = speed;
+});
+audio.addEventListener("play", () => { audio.playbackRate = speed; updatePlayState(); });
+audio.addEventListener("pause", () => { updatePlayState(); saveProgress(true); });
+audio.addEventListener("ended", () => {
+  if (!P.book) return;
+  if (P.i < P.tracks.length - 1) {
+    if (sleepChapter) { sleepChapter = false; updateSleepUI(); P.i++; pendingSeek = 0; audio.src = P.tracks[P.i].u; updatePlayerUI(); mediaMeta(); saveProgress(true); return; }
+    setTrack(P.i + 1, 0, true);
+  } else {
+    const p = progress[P.book.id] || {}; p.done = true; p.ts = Date.now(); progress[P.book.id] = p; store.set("hf_progress", progress);
+    updatePlayState();
+  }
+});
+audio.addEventListener("timeupdate", () => {
+  if (!P.book || audio.src === SILENT) return;
+  if (sleepAt && Date.now() >= sleepAt) { sleepAt = 0; audio.pause(); updateSleepUI(); }
+  if (Date.now() - lastSave > 5000) saveProgress();
+  updateTime();
+});
+function saveProgress(force) {
+  if (!P.book || !P.tracks.length || audio.src === SILENT) return;
+  lastSave = Date.now();
+  const t = pendingSeek || audio.currentTime || 0;
+  const pos = P.tracks.slice(0, P.i).reduce((s, x) => s + (x.d || 0), 0) + t;
+  progress[P.book.id] = { i: P.i, t: Math.floor(t), pos: Math.floor(pos), ts: Date.now(), done: false };
+  store.set("hf_progress", progress);
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) saveProgress(true); });
+window.addEventListener("pagehide", () => saveProgress(true));
+
+function togglePlay() { if (!P.book) return; audio.paused ? audio.play().catch(() => {}) : audio.pause(); }
+function skip(sec) { if (!P.book) return; const d = audio.duration || P.tracks[P.i].d || 0;
+  let t = (audio.currentTime || 0) + sec;
+  if (t < 0 && P.i > 0 && sec < 0) { setTrack(P.i - 1, Math.max(0, (P.tracks[P.i - 1].d || 0) + t), !audio.paused); return; }
+  audio.currentTime = Math.max(0, d ? Math.min(t, d - 1) : t); saveProgress(); }
+function prevTrack() { if (!P.book) return; if (audio.currentTime > 5 || P.i === 0) { audio.currentTime = 0; return; } setTrack(P.i - 1, 0, !audio.paused); }
+function nextTrack() { if (!P.book || P.i >= P.tracks.length - 1) return; setTrack(P.i + 1, 0, !audio.paused); }
+
+function mediaMeta() {
+  if (!("mediaSession" in navigator) || !P.book) return;
+  const b = P.book, tr = P.tracks[P.i];
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: tr.t, artist: byline(b), album: b.t,
+    artwork: b.img ? [{ src: b.img, sizes: "512x512" }] : [{ src: "icon-512.png", sizes: "512x512", type: "image/png" }]
+  });
+}
+if ("mediaSession" in navigator) {
+  const ms = navigator.mediaSession, set = (a, f) => { try { ms.setActionHandler(a, f); } catch {} };
+  set("play", () => audio.play()); set("pause", () => audio.pause());
+  set("seekbackward", d => skip(-(d?.seekOffset || 15))); set("seekforward", d => skip(d?.seekOffset || 30));
+  set("previoustrack", prevTrack); set("nexttrack", nextTrack);
+  set("seekto", d => { audio.currentTime = d.seekTime; saveProgress(); });
+}
+
+/* ---------- Player-Oberfläche ---------- */
+const sheet = $("#sheet");
+function openSheet() { if (!P.book) return; sheet.classList.add("open"); updatePlayerUI(); }
+function closeSheet() { sheet.classList.remove("open"); $("#sheetch").style.display = "none"; }
+$("#grab").onclick = closeSheet;
+let touchY = null;
+sheet.addEventListener("touchstart", e => { touchY = sheet.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+sheet.addEventListener("touchend", e => { if (touchY !== null && e.changedTouches[0].clientY - touchY > 90) closeSheet(); touchY = null; }, { passive: true });
+$("#minicv").onclick = $("#miniinfo").onclick = openSheet;
+$("#minipp").onclick = togglePlay; $("#pp").onclick = togglePlay;
+$("#rew").onclick = () => skip(-15); $("#fwd").onclick = () => skip(30);
+$("#prev").onclick = prevTrack; $("#next").onclick = nextTrack;
+const seek = $("#seek"); let seeking = false;
+seek.addEventListener("input", () => { seeking = true; $("#tcur").textContent = fmt(+seek.value); });
+seek.addEventListener("change", () => { audio.currentTime = +seek.value; seeking = false; saveProgress(); });
+$("#chs").onclick = () => { const l = $("#sheetch"); const show = l.style.display !== "block"; l.style.display = show ? "block" : "none";
+  if (show) { l.innerHTML = chapterHTML(P.tracks, P.book.id); l.querySelector(".cur")?.scrollIntoView({ block: "center" }); } };
+$("#sheetch").addEventListener("click", e => { const b = e.target.closest("button[data-i]"); if (b) setTrack(+b.dataset.i, 0, true); });
+
+function menu(title, options, cur, onPick) {
+  $("#menubox").innerHTML = `<h3>${esc(title)}</h3>` + options.map(([v, l]) => `<button data-v="${v}" class="${String(v) === String(cur) ? "on" : ""}">${esc(l)}</button>`).join("") + `<button data-v="__x" style="font-weight:600">Abbrechen</button>`;
+  const m = $("#menu"); m.style.display = "flex";
+  m.onclick = e => { const b = e.target.closest("button"); m.style.display = "none"; if (b && b.dataset.v !== "__x") onPick(b.dataset.v); };
+}
+const SPEEDS = [0.8, 0.9, 1, 1.1, 1.2, 1.35, 1.5, 1.75, 2];
+const spdLabel = v => `${String(v).replace(".", ",")}×`;
+$("#spd").onclick = () => menu("Wiedergabetempo", SPEEDS.map(v => [v, spdLabel(v)]), speed, v => {
+  speed = +v; store.set("hf_speed", speed); audio.defaultPlaybackRate = speed; audio.playbackRate = speed; updatePlayerUI(); });
+$("#slp").onclick = () => menu("Schlaf-Timer", [[0, "Aus"], [10, "10 Minuten"], [15, "15 Minuten"], [30, "30 Minuten"], [45, "45 Minuten"], [60, "1 Stunde"], ["ch", "Ende des Kapitels"]],
+  sleepChapter ? "ch" : "", v => { sleepChapter = v === "ch"; sleepAt = (v === "ch" || +v === 0) ? 0 : Date.now() + v * 60000; updateSleepUI(); });
+setInterval(() => { if (sleepAt && Date.now() >= sleepAt) { sleepAt = 0; audio.pause(); } updateSleepUI(); }, 15000);
+function updateSleepUI() {
+  const el = $("#slpv"), btn = $("#slp");
+  el.textContent = sleepChapter ? "Kapitelende" : sleepAt ? `${Math.max(1, Math.ceil((sleepAt - Date.now()) / 60000))} Min` : "Aus";
+  btn.classList.toggle("act", !!(sleepAt || sleepChapter));
+}
+function updatePlayState() {
+  const ic = audio.paused ? ICON.play : ICON.pause;
+  $("#pp").innerHTML = ic; $("#minipp").innerHTML = ic;
+  if ("mediaSession" in navigator) navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+}
+function updatePlayerUI() {
+  if (!P.book) return;
+  const b = P.book, tr = P.tracks[P.i];
+  $("#mini").style.display = "flex";
+  $("#minicv").outerHTML = cover(b, "cv").replace('<div class="cv"', '<button class="cv" id="minicv"').replace(/<\/div>$/, "</button>");
+  $("#minicv").onclick = openSheet;
+  $("#minitt").textContent = b.t; $("#minita").textContent = `Teil ${P.i + 1}/${P.tracks.length} · ${tr.t}`;
+  $("#bigcv").outerHTML = cover(b, "cv bigcv").replace('class="cv bigcv"', 'class="cv bigcv" id="bigcv"');
+  $("#stt").textContent = b.t; $("#sch").textContent = `${byline(b)} · Teil ${P.i + 1} von ${P.tracks.length}${tr.t && !/^teil \d+$/i.test(tr.t) ? " · " + tr.t : ""}`;
+  $("#spdv").textContent = spdLabel(speed); $("#spd").classList.toggle("act", speed !== 1);
+  $("#chsv").textContent = `${P.i + 1}/${P.tracks.length}`;
+  document.querySelectorAll("ol.ch li").forEach((li, k) => li.classList.toggle("cur", k === P.i && (li.parentElement.id === "sheetch" || location.hash.includes(encodeURIComponent(b.id)))));
+  updatePlayState(); updateSleepUI(); updateTime();
+}
+function updateTime() {
+  if (!P.book) return;
+  const d = audio.duration && isFinite(audio.duration) ? audio.duration : (P.tracks[P.i].d || 0);
+  const t = pendingSeek || audio.currentTime || 0;
+  if (!seeking) { seek.max = Math.max(1, Math.floor(d)); seek.value = Math.floor(t); $("#tcur").textContent = fmt(t); }
+  $("#tleft").textContent = "-" + fmt(Math.max(0, d - t));
+  const total = P.book.d || 1, pos = P.tracks.slice(0, P.i).reduce((s, x) => s + (x.d || 0), 0) + t;
+  $("#miniline").style.width = `${Math.min(100, pos / total * 100)}%`;
+}
+
+/* ---------- Start ---------- */
+function restoreLast() {   // zuletzt gehörtes Buch im Miniplayer anbieten (ohne Autoplay)
+  const last = Object.entries(progress).filter(([id, p]) => BY[id] && !p.done).sort((a, b) => b[1].ts - a[1].ts)[0];
+  if (!last) return;
+  const [id, p] = last;
+  loadTracks(id).then(tr => {
+    if (P.book) return;
+    P.book = BY[id]; P.tracks = tr; P.i = Math.min(p.i, tr.length - 1); pendingSeek = p.t;
+    audio.src = tr[P.i].u;
+    updatePlayerUI(); mediaMeta();
+  }).catch(() => {});
+}
+async function init() {
+  render();
+  try {
+    const r = await fetch("catalog.json", { cache: "no-cache" });
+    const data = await r.json();
+    BOOKS = data.books || []; UPDATED = data.updated;
+    BY = Object.fromEntries(BOOKS.map(b => [b.id, b]));
+  } catch { view.innerHTML = `<div class="empty">Katalog konnte nicht geladen werden. Bitte Internetverbindung prüfen.</div>`; return; }
+  render(); restoreLast();
+}
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+init();
+</script>
+</body>
+</html>
