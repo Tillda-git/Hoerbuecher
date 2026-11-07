@@ -1,0 +1,40 @@
+on:
+  schedule:
+    - cron: "41 */2 * * *"     # alle 2 Stunden
+  workflow_dispatch:           # per Knopfdruck unter "Actions"
+  push:
+    paths: ["podcasts.txt"]    # sofort, wenn du die Podcast-Liste änderst
+
+permissions:
+  contents: write
+
+concurrency:
+  group: katalog               # nie gleichzeitig mit dem Hörbuch-Suchlauf
+  cancel-in-progress: false
+
+jobs:
+  podcasts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Neue Folgen holen
+        run: python hoerbuch_finder.py podcasts
+
+      - name: Ergebnis speichern
+        run: |
+          git config user.name  "katalog-bot"
+          git config user.email "katalog-bot@users.noreply.github.com"
+          git add docs/podcasts.json
+          if git diff --cached --quiet; then
+            echo "Keine neuen Folgen."
+          else
+            git commit -m "Podcasts aktualisiert $(date +'%F %H:%M')"
+            git pull --rebase
+            git push
+          fi
