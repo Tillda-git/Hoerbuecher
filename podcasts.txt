@@ -4,9 +4,11 @@
 
 # Nachrichten & Politik
 11KM der tagesschau-Podcast
-Der Tag Deutschlandfunk
+# Der Tag (Deutschlandfunk)
+https://www.deutschlandfunk.de/podcast-104.xml
 Lage der Nation
-Was jetzt? ZEIT ONLINE
+# Was jetzt? (täglich, ZEIT)
+https://feeds.simplecast.com/Xtqjn37O
 
 # Wissen & Geschichte
 Quarks Daily
@@ -19,7 +21,8 @@ c't uplink
 Breitband Deutschlandfunk Kultur
 
 # Krimi & Gesellschaft
-Verbrechen ZEIT ONLINE
+# Verbrechen (ZEIT)
+https://feeds.simplecast.com/dnJhzmyN
 
 # Sprachen
 Journal en français facile
