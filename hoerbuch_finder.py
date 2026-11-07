@@ -224,6 +224,9 @@ def librivox_to_book(b: dict) -> tuple[dict | None, str]:
                         for a in (b.get("authors") or []))
     genres = [g.get("name", "") for g in (b.get("genres") or []) if isinstance(g, dict)]
     ident = iarchive.rstrip("/").rsplit("/", 1)[-1] if iarchive else ""
+    if not ident:   # z. B. https://archive.org/compress/winnetou1_librivox/formats=…
+        m = re.search(r"archive\.org/(?:compress|download|details)/([^/?&]+)", b.get("url_zip_file") or "")
+        ident = m.group(1) if m else ""
     title = html.unescape(b.get("title") or "").strip()
     return {
         "id": f"librivox:{b.get('id')}",
@@ -236,11 +239,11 @@ def librivox_to_book(b: dict) -> tuple[dict | None, str]:
         "duration": secs,
         "parts": sections,
         "description": clean_text(b.get("description")),
-        "url": b.get("url_librivox") or iarchive,
+        "url": b.get("url_librivox") or iarchive or (f"https://archive.org/details/{ident}" if ident else ""),
         "cover": f"https://archive.org/services/img/{ident}" if ident else "",
         "links": {k: v for k, v in {"ZIP (alle MP3)": b.get("url_zip_file"),
                                     "Podcast-Feed": b.get("url_rss"),
-                                    "Internet Archive": iarchive}.items() if v},
+                                    "Internet Archive": iarchive or (f"https://archive.org/details/{ident}" if ident else "")}.items() if v},
         "archive_id": ident,
         "complete_reason": f"{sections} Abschnitte, als Gesamtwerk veröffentlicht",
     }, ""
@@ -286,7 +289,44 @@ def crawl_librivox_api(rejected: dict) -> list[dict]:
             break
         offset += limit
         time.sleep(0.5)
-    return books
+    return librivox_details(books)
+
+
+def librivox_sections_to_tracks(sections: list) -> list[dict]:
+    secs = sorted((x for x in sections or [] if x.get("listen_url")), key=lambda x: to_int(x.get("section_number")))
+    return [{"title": clean_text(x.get("title"), 200) or f"Teil {x.get('section_number')}",
+             "url": re.sub(r"^http://", "https://", x["listen_url"]), "duration": to_int(x.get("playtime"))}
+            for x in secs]
+
+
+def librivox_details(books: list[dict]) -> list[dict]:
+    """Genres, Archiv-Kennung und Kapitel je Buch – bekannte Bücher aus dem letzten Lauf übernehmen,
+    neue ruhig nacheinander abfragen (LibriVox weist schnelle Abfrageserien ab)."""
+    old = {b["id"]: b for b in load_data().get("books", []) if b.get("source") == "LibriVox" and b.get("tracks")}
+    todo = [b for b in books if b["id"] not in old]
+    log(f"LibriVox: {len(books) - len(todo)} Bücher aus dem letzten Lauf übernommen, {len(todo)} neu abzufragen …")
+    out, failed = [], 0
+    for b in books:
+        if b["id"] in old:
+            out.append(old[b["id"]])
+    for n, b in enumerate(todo, 1):
+        pid = b["id"].split(":", 1)[1]
+        try:
+            d = http_json(f"{LIBRIVOX_API}?id={pid}&format=json&extended=1", timeout=60, retries=4)
+            raw = (d.get("books") or [None])[0]
+            nb, _ = librivox_to_book(raw) if raw else (None, "")
+            if nb:
+                nb["tracks"] = librivox_sections_to_tracks(raw.get("sections"))
+                b = nb
+        except RuntimeError:
+            failed += 1
+        out.append(b)
+        if n % 100 == 0:
+            log(f"LibriVox: Details {n}/{len(todo)} ({failed} fehlgeschlagen)")
+        time.sleep(0.4)
+    if failed:
+        log(f"LibriVox: {failed} Detailabfragen fehlgeschlagen – Kapitel kommen dort aus dem Internet Archive")
+    return out
 
 
 def parse_runtime(v) -> int:
@@ -351,6 +391,13 @@ def crawl_librivox_archive(rejected: dict) -> list[dict]:
 
 def librivox_tracks(book_id: str, archive_id: str = "") -> list[dict]:
     pid = book_id.split(":", 1)[1]
+    if archive_id and not pid.startswith("ia-"):   # Internet Archive zuerst: zuverlässig, schont LibriVox
+        try:
+            tr = librivox_tracks(f"librivox:ia-{archive_id}", archive_id)
+            if tr:
+                return tr
+        except RuntimeError:
+            pass
     if pid.startswith("ia-"):
         archive_id = archive_id or pid[3:]
         pid = ""
@@ -1088,7 +1135,7 @@ PODCAST_EPISODES = 40
 def read_podcast_list() -> list[str]:
     if not PODCAST_LIST.exists():
         return []
-    lines = [l.split("#", 1)[0].strip() if not l.strip().startswith("http") else l.strip()
+    lines = [l.strip().split()[0] if l.strip().startswith("http") else l.split("#", 1)[0].strip()
              for l in PODCAST_LIST.read_text("utf-8").splitlines()]
     return [l for l in dict.fromkeys(lines) if l]
 
