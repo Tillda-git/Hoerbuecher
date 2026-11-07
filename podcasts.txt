@@ -1,0 +1,25 @@
+# Deine Podcasts – eine Zeile pro Podcast.
+# Entweder den Namen (so wie er in Apple Podcasts heißt) oder direkt die Feed-Adresse (https://…).
+# Zeilen mit # am Anfang werden ignoriert. Nach dem Speichern erscheint der Podcast nach ein paar Minuten in der App.
+
+# Nachrichten & Politik
+11KM der tagesschau-Podcast
+Der Tag Deutschlandfunk
+Lage der Nation
+Was jetzt? ZEIT ONLINE
+
+# Wissen & Geschichte
+Quarks Daily
+WDR ZeitZeichen
+Wissenschaft im Brennpunkt
+Terra X History
+
+# Technik
+c't uplink
+Breitband Deutschlandfunk Kultur
+
+# Krimi & Gesellschaft
+Verbrechen ZEIT ONLINE
+
+# Sprachen
+Journal en français facile

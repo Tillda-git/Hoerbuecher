@@ -1,6 +1,16 @@
 # Hörbücher-App fürs iPhone
 
-Eine eigene Hörbuch-App ohne Abo und ohne Werbung. Sie zeigt nur **vollständige**, legal und kostenlos anhörbare deutsche Hörbücher (LibriVox und ARD Audiothek), geordnet nach Kategorien.
+Eine eigene Hörbuch-App ohne Abo und ohne Werbung. Sie zeigt nur **vollständige**, legal und kostenlos anhörbare deutsche Hörbücher und Hörspiele, geordnet nach Kategorien.
+
+| Quelle | Inhalt | In der App |
+|---|---|---|
+| LibriVox | gemeinfreie Klassiker, von Freiwilligen gelesen | abspielbar |
+| ARD Sounds (früher Audiothek) | Lesungen, Hörspiele, Hörspielreihen wie „Kein Mucks!“, „Radio Tatort“, „Das Portal“ | abspielbar |
+| Deutschlandfunk | Hörspiel, Kriminalhörspiel, Professor van Dusen, Kakadu-Kinderhörspiel | abspielbar |
+| Vorleser.net | Klassiker mit professionellen Sprechern | nur verlinkt* |
+| Ohrka | Kinderhörbücher mit bekannten Stimmen | nur verlinkt* |
+
+\* Diese Anbieter erlauben keine öffentliche Wiedergabe im Internet. Die Titel erscheinen deshalb im Katalog, ein Tipp öffnet sie aber auf der Seite des Anbieters. Mit „Nur in der App abspielbar“ blendest du sie aus. Bei Mehrteilern („1/3, 2/3, 3/3“) wird ein Titel nur aufgenommen, wenn alle Teile verfügbar sind.
 
 **Funktionen:** Entdecken nach Kategorien und Zufallsfunden · Suche · Bibliothek (Weiterhören, Gemerkt, Gehört) · setzt automatisch an der letzten Stelle fort · Tempo 0,8× bis 2× · Schlaf-Timer (auch „Ende des Kapitels“) · 15 s zurück / 30 s vor · Bedienung vom Sperrbildschirm und mit AirPods · Dunkelmodus.
 
@@ -44,6 +54,17 @@ Danach startet die App über ihr Icon wie jede andere App.
 
 ---
 
+
+## Podcasts
+
+Im Reiter **Podcasts** findest du die neuesten Folgen deiner Podcasts und für jeden Podcast eine eigene Seite. Die App merkt sich, wie weit du gehört hast. Neue Folgen holt GitHub **alle 2 Stunden** ab.
+
+**Welche Podcasts?** Das steht in der Datei `podcasts.txt` im Repository, eine Zeile pro Podcast. Dort kann der Name stehen (wie in Apple Podcasts) oder die Feed-Adresse.
+
+**Podcast hinzufügen:** In der App unter Podcasts auf **＋ Podcast hinzufügen** tippen, suchen und **Hinzufügen** wählen. Die App kopiert die Adresse und öffnet `podcasts.txt` bei GitHub. Dort fügst du die Adresse als neue Zeile ein und tippst auf **Commit changes**. Nach ein paar Minuten ist der Podcast da. Dafür musst du in Safari bei GitHub angemeldet sein.
+
+**Podcast entfernen:** Die Zeile in `podcasts.txt` löschen. Wenn du ihn nur auf dem iPhone nicht sehen willst, wählst du auf der Podcastseite **Ausblenden**.
+
 ## Gut zu wissen
 
 - **Internet nötig:** Die Hörbücher werden gestreamt, nicht heruntergeladen. Das sind je nach Quelle etwa 30–60 MB pro Stunde. Für lange Fahrten ohne Netz bietet LibriVox auf der Buchseite („Bei LibriVox ansehen“) ZIP-Downloads an.
@@ -55,4 +76,4 @@ Danach startet die App über ihr Icon wie jede andere App.
 
 ## Anpassen
 
-Kategorien, Mindestlängen und ARD-Suchbegriffe stehen oben in `hoerbuch_finder.py` (`CONFIG`, `CATEGORY_RULES`). Bearbeiten geht direkt auf GitHub über das Stift-Symbol. Beim nächsten Lauf gilt die neue Einstellung.
+Kategorien, Mindestlängen, ARD-Suchbegriffe, ARD-Hörspielreihen und Podcast-Feeds stehen oben in `hoerbuch_finder.py` (`CONFIG`, `CATEGORY_RULES`). Weitere Podcast-Feeds trägst du einfach in die Liste `feeds` ein. Bearbeiten geht direkt auf GitHub über das Stift-Symbol. Beim nächsten Lauf gilt die neue Einstellung.

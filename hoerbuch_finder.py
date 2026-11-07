@@ -17,6 +17,7 @@ Nur Python 3.9+ nötig, keine Zusatzpakete.
   python hoerbuch_finder.py crawl      # nur crawlen, Ergebnis in hoerbuecher.json
   python hoerbuch_finder.py diagnose   # prüfen, ob die Quellen erreichbar sind
   python hoerbuch_finder.py site       # crawlen und Daten für die iPhone-App (Ordner docs/) schreiben
+  python hoerbuch_finder.py podcasts   # Podcasts aus podcasts.txt abgleichen (docs/podcasts.json)
 """
 from __future__ import annotations
 
@@ -45,7 +46,8 @@ USER_AGENT = "HoerbuchFinder/1.0 (privater Hoerbuch-Katalog)"
 # Einstellungen – hier anpassen
 # --------------------------------------------------------------------------
 CONFIG = {
-    "sources": {"librivox": True, "ard": True},
+    "sources": {"librivox": True, "ard": True, "ard_serien": True, "feeds": True,
+                "vorleser": True, "ohrka": True},
     # Mindestlänge, damit etwas als "Buch" gilt (Gedichte/Schnipsel fallen raus)
     "min_minutes": 20,
     # ARD: Einteiler (z. B. ein Hörspiel am Stück) müssen mindestens so lang sein
@@ -54,10 +56,29 @@ CONFIG = {
     "ard_category_keywords": ["hörspiel", "hörbuch", "krimi", "literatur",
                               "lesung", "kinder", "märchen", "fiction"],
     # ARD: zusätzliche Suchbegriffe (findet Reihen außerhalb dieser Rubriken)
-    "ard_search_terms": ["Hörbuch", "Lesung", "liest", "Roman", "Hörspiel",
-                         "Krimi-Hörspiel", "Kinderhörspiel", "Märchen",
-                         "Mehrteiler", "Science-Fiction-Hörspiel"],
-    "ard_search_pages": 8,          # je Suchbegriff, 24 Treffer pro Seite
+    "ard_search_terms": ["Hörbuch", "Hörbuch ungekürzt", "Lesung", "liest", "Roman", "Hörspiel",
+                         "Hörspiel-Serie", "Krimi-Hörspiel", "Krimi Mehrteiler", "Kinderhörspiel",
+                         "Kinderhörbuch", "Märchen", "Mehrteiler", "Science-Fiction-Hörspiel",
+                         "Fantasy-Hörspiel", "Abenteuer-Hörspiel", "Klassiker Hörspiel", "Thriller"],
+    "ard_search_pages": 10,         # je Suchbegriff, 24 Treffer pro Seite
+    # ARD-Hörspielreihen, in denen jede Folge ein abgeschlossenes Stück ist (Suchbegriff → Kategorie)
+    "ard_episode_series": {"Kein Mucks": "Krimi", "Radio Tatort": "Krimi", "Auf der Spur": "Krimi",
+                           "Knallhart": "Thriller Krimi", "Das Portal": "Science-Fiction",
+                           "Große Geschichten": "Literatur", "Hörspiel-Speicher": "",
+                           "Nothing Serious": "Comedy", "ARD Kinderhörspiel": "Kinder"},
+    # Podcast-Feeds (jede Folge bzw. jeder vollständige Mehrteiler wird ein Titel)
+    "feeds": [
+        {"name": "Hörspiel", "source": "Deutschlandfunk", "category": "",
+         "url": "https://www.hoerspielundfeature.de/hoerspiel-122.xml"},
+        {"name": "Kriminalhörspiel", "source": "Deutschlandfunk", "category": "Krimi",
+         "url": "https://www.hoerspielundfeature.de/krimi-hoerspiel-100.xml"},
+        {"name": "Professor van Dusen", "source": "Deutschlandfunk", "category": "Krimi",
+         "url": "https://www.deutschlandfunk.de/professor-van-dusen-104.xml"},
+        {"name": "Kakadu Kinderhörspiel", "source": "Deutschlandfunk", "category": "Kinder",
+         "url": "https://www.kakadu.de/kinderhoerspiel-118.xml"},
+    ],
+    # Nur verlinkt (deren Bedingungen erlauben keine öffentliche Wiedergabe im Internet)
+    "ohrka_categories": ["abenteuerlich-lustig", "tierisch-spannend", "maerchen-fuer-alle"],
     "ard_max_programsets": 2500,    # Obergrenze zu prüfender Sendereihen
     "workers": 4,                   # parallele Anfragen an die ARD (höflich bleiben)
 }
@@ -137,6 +158,23 @@ def http_json(url: str, data: bytes | None = None, headers: dict | None = None,
             if e.code in (400, 401, 403, 404):
                 break
         except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as e:
+            last_err = str(e)
+        time.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"{url[:90]} → {last_err}")
+
+
+def http_text(url: str, timeout: int = 60, retries: int = 3) -> str:
+    last_err = None
+    for attempt in range(retries):
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            last_err = f"HTTP {e.code}"
+            if e.code in (400, 401, 403, 404, 410):
+                break
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
             last_err = str(e)
         time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"{url[:90]} → {last_err}")
@@ -594,7 +632,330 @@ def crawl_ard(rejected: dict) -> list[dict]:
 # --------------------------------------------------------------------------
 # Crawl-Steuerung & Speicherung
 # --------------------------------------------------------------------------
-SOURCES = {"librivox": ("LibriVox", crawl_librivox), "ard": ("ARD Audiothek", crawl_ard)}
+# --------------------------------------------------------------------------
+# Folgen-basierte Quellen (Podcast-Feeds, ARD-Hörspielreihen)
+# --------------------------------------------------------------------------
+import hashlib
+import xml.etree.ElementTree as ET
+
+PART_RX = re.compile(r"[\(\[]\s*(\d{1,2})\s*/\s*(\d{1,2})\s*[\)\]]|\b(?:Teil|Folge)\s+(\d{1,2})\s*(?:von|/)\s*(\d{1,2})\b", re.I)
+PREFIX_RX = re.compile(r"^\s*(?:Krimi-?Hörspiel|Kriminalhörspiel|Hörspiel|Kinderhörspiel|Hörspiel-Serie)\s*:\s*", re.I)
+AUTHOR_RX = re.compile(r"\bVon\s+([A-ZÄÖÜ][^\n•]{2,70}?)\s*(?:www\.|\||$)")
+GENRE_RX = re.compile(r"•\s*([^•]{2,40}?)\s*•")
+
+
+def split_part(title: str) -> tuple[str, str, int | None, int | None]:
+    """→ (Gruppenschlüssel, Anzeigetitel, Teil, Teile gesamt)."""
+    t = PREFIX_RX.sub("", title or "").strip()
+    m = PART_RX.search(t)
+    if not m:
+        return norm_key(t), t, None, None
+    nums = [int(g) for g in m.groups() if g]
+    head, tail = t[:m.start()].strip(" -–:,"), t[m.end():].strip(" -–:,")
+    shown = head or tail or t
+    return norm_key(shown), shown, nums[0], nums[1]
+
+
+def norm_key(t: str) -> str:
+    return re.sub(r"[^a-z0-9äöüß]+", " ", (t or "").lower()).strip()
+
+
+def stable_id(prefix: str, *parts: str) -> str:
+    return f"{prefix}:" + hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def episodes_to_books(eps: list[dict], *, source: str, station: str, cat_hint: str, id_prefix: str,
+                      rejected: dict, min_single: int | None = None) -> list[dict]:
+    """Einzelfolgen → Titel; Mehrteiler (1/3, 2/3 …) nur, wenn alle Teile vorhanden sind."""
+    min_single = (min_single or CONFIG["min_minutes"]) * 60
+    singles, groups = [], {}
+    for e in eps:
+        if not e.get("url"):
+            continue
+        key, shown, n, total = split_part(e.get("title", ""))
+        if n is None:
+            singles.append((key, shown, [e]))
+        else:
+            g = groups.setdefault(key, {"title": shown, "parts": {}, "total": 0})
+            g["parts"].setdefault(n, e)
+            g["total"] = max(g["total"], total or 0, n)
+    books, label = [], f"{source}: "
+    for key, shown, parts in singles:
+        if to_int(parts[0].get("duration")) < min_single:
+            rejected[label + "zu kurz"] = rejected.get(label + "zu kurz", 0) + 1
+            continue
+        books.append(_episode_book(key, shown, parts, source, station, cat_hint, id_prefix, "Einteiler"))
+    for key, g in groups.items():
+        missing = sorted(set(range(1, g["total"] + 1)) - set(g["parts"]))
+        if missing:
+            rejected[label + "Teile fehlen"] = rejected.get(label + "Teile fehlen", 0) + 1
+            continue
+        parts = [g["parts"][i] for i in range(1, g["total"] + 1)]
+        books.append(_episode_book(key, g["title"], parts, source, station, cat_hint, id_prefix,
+                                   f"alle {len(parts)} Teile verfügbar"))
+    return books
+
+
+def _episode_book(key, title, parts, source, station, cat_hint, id_prefix, reason) -> dict:
+    first = parts[0]
+    desc = clean_text(first.get("description"), 2000)
+    genres = " ".join(GENRE_RX.findall(desc))
+    m = AUTHOR_RX.search(desc)
+    author = m.group(1).strip(" ,.") if m else ""
+    if not author:
+        a, t2 = split_author(title)
+        author, title = (a, t2) if a else ("", title)
+    text = f"{title} {desc}"
+    form = "Lesung" if LESUNG_RX.search(text) else "Hörspiel"
+    tracks = [{"title": p.get("title") or f"Teil {i + 1}", "url": p.get("url"),
+               "duration": to_int(p.get("duration"))} for i, p in enumerate(parts)]
+    return {
+        "id": stable_id(id_prefix, station, key or first.get("url", "")),
+        "source": source, "station": station, "title": title, "author": author,
+        "category": classify(f"{genres} {cat_hint} {title}", desc), "form": form,
+        "duration": sum(t["duration"] for t in tracks), "parts": len(tracks),
+        "description": clean_text(GENRE_RX.sub("", desc)), "url": first.get("link") or "",
+        "cover": first.get("image") or "", "links": {}, "tracks": tracks, "complete_reason": reason,
+    }
+
+
+ITUNES = "{http://www.itunes.com/dtds/podcast-1.0.dtd}"
+
+
+def parse_feed(xml_text: str) -> list[dict]:
+    root = ET.fromstring(xml_text.encode("utf-8"))
+    ch = root.find("channel")
+    if ch is None:
+        return []
+    ch_img = (ch.find(f"{ITUNES}image").get("href") if ch.find(f"{ITUNES}image") is not None
+              else (ch.findtext("image/url") or ""))
+    eps = []
+    for it in ch.findall("item"):
+        enc = it.find("enclosure")
+        img = it.find(f"{ITUNES}image")
+        eps.append({
+            "title": html.unescape((it.findtext("title") or "").strip()),
+            "url": enc.get("url") if enc is not None else "",
+            "duration": parse_runtime(it.findtext(f"{ITUNES}duration")),
+            "description": it.findtext("description") or it.findtext(f"{ITUNES}summary") or "",
+            "link": it.findtext("link") or "",
+            "image": (img.get("href") if img is not None else "") or ch_img,
+            "guid": (it.findtext("guid") or "").strip(),
+            "date": feed_date(it.findtext("pubDate")),
+        })
+    return eps
+
+
+def feed_date(v: str | None) -> str:
+    from email.utils import parsedate_to_datetime
+    try:
+        return parsedate_to_datetime(v).isoformat(timespec="minutes") if v else ""
+    except (TypeError, ValueError):
+        return ""
+
+
+def feed_channel(xml_text: str) -> dict:
+    ch = ET.fromstring(xml_text.encode("utf-8")).find("channel")
+    if ch is None:
+        return {}
+    img = ch.find(f"{ITUNES}image")
+    return {"name": html.unescape((ch.findtext("title") or "").strip()),
+            "author": (ch.findtext(f"{ITUNES}author") or "").strip(),
+            "img": (img.get("href") if img is not None else "") or (ch.findtext("image/url") or ""),
+            "desc": clean_text(ch.findtext("description") or ch.findtext(f"{ITUNES}summary"), 400)}
+
+
+def crawl_feeds(rejected: dict) -> list[dict]:
+    books, ok = [], 0
+    for f in CONFIG["feeds"]:
+        try:
+            eps = parse_feed(http_text(f["url"]))
+            ok += 1
+        except Exception as e:
+            log(f"Feed '{f['name']}': nicht lesbar ({e})")
+            continue
+        found = episodes_to_books(eps, source=f["source"], station=f["name"], cat_hint=f.get("category", ""),
+                                  id_prefix="feed", rejected=rejected, min_single=f.get("min"))
+        log(f"Feed '{f['name']}': {len(eps)} Folgen → {len(found)} vollständige Titel")
+        books.extend(found)
+        time.sleep(0.5)
+    if not ok:
+        raise RuntimeError("kein Feed erreichbar")
+    return books
+
+
+SERIES_VARIANTS = [
+    "id title sharingUrl image {{ url }} items(first: 400, filter: {{isPublished: {{equalTo: true}}}}) "
+    "{{ nodes {{ id title synopsis duration sharingUrl audios {{ url downloadUrl }} }} }}",
+    "id title items(first: 400) {{ nodes {{ id title duration audios {{ url downloadUrl }} }} }}",
+]
+
+
+def crawl_ard_series(rejected: dict) -> list[dict]:
+    books, ok = [], 0
+    for term, cat in CONFIG["ard_episode_series"].items():
+        try:
+            d = gql(f"""{{ search(query: {q(term)}, limit: 10) {{ programSets {{ nodes {{ id title }} }} }} }}""")
+            ok += 1
+        except RuntimeError as e:
+            log(f"ARD-Reihe '{term}': Suche fehlgeschlagen ({e})")
+            continue
+        nodes = ((d.get("search") or {}).get("programSets") or {}).get("nodes") or []
+        words = norm_key(term).split()
+        ps_node = next((n for n in nodes if all(w in norm_key(n.get("title", "")) for w in words)), None)
+        if not ps_node:
+            log(f"ARD-Reihe '{term}': nicht gefunden")
+            continue
+        ps = None
+        for v in SERIES_VARIANTS:
+            try:
+                ps = gql(f"{{ programSet(id: {q(ps_node['id'])}) {{ {v.replace('{{', '{').replace('}}', '}')} }} }}").get("programSet")
+                break
+            except RuntimeError:
+                continue
+        if not ps:
+            continue
+        img = ((ps.get("image") or {}).get("url") or "").replace("{width}", "400")
+        eps = []
+        for it in ((ps.get("items") or {}).get("nodes") or []):
+            a = next((x for x in (it.get("audios") or []) if x and (x.get("downloadUrl") or x.get("url"))), None)
+            eps.append({"title": it.get("title") or "", "url": (a or {}).get("downloadUrl") or (a or {}).get("url"),
+                        "duration": to_int(it.get("duration")), "description": it.get("synopsis") or "",
+                        "link": it.get("sharingUrl") or ps.get("sharingUrl") or "", "image": img})
+        found = episodes_to_books(eps, source="ARD Audiothek", station=ps.get("title") or term, cat_hint=cat,
+                                  id_prefix="ardserie", rejected=rejected, min_single=CONFIG["ard_min_single_minutes"])
+        log(f"ARD-Reihe '{ps.get('title')}': {len(eps)} Folgen → {len(found)} vollständige Titel")
+        books.extend(found)
+        time.sleep(0.3)
+    if not ok:
+        raise RuntimeError("ARD-Suche nicht erreichbar")
+    return books
+
+
+# --------------------------------------------------------------------------
+# Nur verlinkte Quellen (keine Wiedergabe in der App)
+# --------------------------------------------------------------------------
+def strip_tags(s: str) -> str:
+    return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s or ""))).strip()
+
+
+def meta_content(page: str, name: str) -> str:
+    m = re.search(rf'<meta[^>]+(?:name|property)="{re.escape(name)}"[^>]+content="([^"]*)"', page, re.I) or \
+        re.search(rf'<meta[^>]+content="([^"]*)"[^>]+(?:name|property)="{re.escape(name)}"', page, re.I)
+    return html.unescape(m.group(1)).strip() if m else ""
+
+
+def parse_vorleser(url: str, page: str) -> dict | None:
+    ld = re.search(r'"@type"\s*:\s*"Audiobook"(.*?)</script>', page, re.S)
+    if not ld:
+        return None
+    block = ld.group(1)
+    name = (re.search(r'"name"\s*:\s*"([^"]+)"', block) or [None, ""])[1]
+    dur = (re.search(r'"duration"\s*:\s*"P?T?(\d+):(\d+):(\d+)"', block))
+    secs = int(dur.group(1)) * 3600 + int(dur.group(2)) * 60 + int(dur.group(3)) if dur else 0
+    img = (re.search(r'"image"\s*:\s*"([^"]+)"', block) or [None, ""])[1]
+    author = strip_tags((re.search(r'<p class="author">(.*?)</p>', page, re.S) or [None, ""])[1])
+    speaker = strip_tags((re.search(r'<dd class="speaker">(.*?)</dd>', page, re.S) or [None, ""])[1])
+    cats = strip_tags((re.search(r'Kategorien</dt>\s*<dd>(.*?)</dd>', page, re.S) or [None, ""])[1])
+    desc = meta_content(page, "description") or meta_content(page, "og:description")
+    slug = url.rstrip("/").rsplit("/", 1)[-1]
+    return {"slug": slug, "title": html.unescape(name), "secs": secs, "img": img, "author": author,
+            "speaker": speaker, "cats": cats, "desc": desc}
+
+
+def crawl_vorleser(rejected: dict) -> list[dict]:
+    idx = http_text("https://www.vorleser.net/sitemap.xml")
+    locs = [html.unescape(x) for x in re.findall(r"<loc>([^<]+)</loc>", idx)]
+    prod = next((u for u in locs if "products" in u), None)
+    urls = [html.unescape(x) for x in re.findall(r"<loc>([^<]+/hoerbuch/[^<]+)</loc>", http_text(prod))] if prod else []
+    if not urls:
+        raise RuntimeError("keine Hörbuchliste im Sitemap gefunden")
+    log(f"Vorleser.net: prüfe {len(urls)} Titel …")
+    books = []
+
+    def fetch(u):
+        time.sleep(0.3)
+        return u, http_text(u, retries=2)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for fut in as_completed([pool.submit(fetch, u) for u in urls]):
+            try:
+                u, page = fut.result()
+            except Exception:
+                continue
+            v = parse_vorleser(u, page)
+            if not v or v["secs"] < CONFIG["min_minutes"] * 60:
+                rejected["Vorleser.net: zu kurz"] = rejected.get("Vorleser.net: zu kurz", 0) + 1
+                continue
+            books.append({
+                "id": f"vorleser:{v['slug']}", "source": "Vorleser.net", "station": "", "title": v["title"],
+                "author": v["author"], "category": classify(f"{v['cats']} {v['title']}", v["desc"]),
+                "form": "Hörspiel" if "hörspiel" in v["cats"].lower() else "Lesung",
+                "duration": v["secs"], "parts": 1, "description": clean_text(
+                    (v["desc"] + (f" Gelesen von {v['speaker']}." if v["speaker"] else "")).strip()),
+                "url": u, "cover": v["img"], "links": {}, "external": True,
+                "complete_reason": "vollständiges Hörbuch bei Vorleser.net",
+            })
+    log(f"Vorleser.net: {len(books)} Hörbücher ab {CONFIG['min_minutes']} Min.")
+    return books
+
+
+def parse_ohrka(url: str, page: str) -> dict | None:
+    m = re.search(r"ohrka_mp3_seconds\s*=\s*(\d+)", page)
+    if not m:
+        return None
+    title = meta_content(page, "og:title") or strip_tags((re.search(r"<title>(.*?)</title>", page, re.S) or [None, ""])[1])
+    title = re.sub(r"^\s*OHRKA e\.V\.\s*:\s*", "", title).strip()
+    text = strip_tags(page)
+    reader = re.search(r"gelesen von ([A-ZÄÖÜ][\wäöüß.\- ]{2,40}?)(?=[,.(]| der | die | und |$)", text)
+    return {"title": title, "secs": int(m.group(1)), "reader": reader.group(1).strip() if reader else "",
+            "desc": meta_content(page, "description"), "img": meta_content(page, "og:image")}
+
+
+def crawl_ohrka(rejected: dict) -> list[dict]:
+    books, seen = [], set()
+    for cat in CONFIG["ohrka_categories"]:
+        try:
+            listing = http_text(f"https://www.ohrka.de/hoeren/{cat}")
+        except RuntimeError as e:
+            log(f"Ohrka: Rubrik {cat} nicht lesbar ({e})")
+            continue
+        for path in dict.fromkeys(re.findall(rf'href="(/hoeren/{cat}/[a-z0-9\-]+)"', listing)):
+            if path in seen:
+                continue
+            seen.add(path)
+            url = "https://www.ohrka.de" + path
+            try:
+                o = parse_ohrka(url, http_text(url, retries=2))
+            except RuntimeError:
+                continue
+            time.sleep(0.3)
+            if not o or o["secs"] < CONFIG["min_minutes"] * 60:
+                rejected["Ohrka: zu kurz"] = rejected.get("Ohrka: zu kurz", 0) + 1
+                continue
+            books.append({
+                "id": f"ohrka:{path.rsplit('/', 1)[-1]}", "source": "Ohrka", "station": "", "title": o["title"],
+                "author": "", "category": "Märchen, Sagen & Mythen" if "maerchen" in cat else "Kinder & Jugend",
+                "form": "Lesung", "duration": o["secs"], "parts": 1,
+                "description": clean_text((o["desc"] + (f" Gelesen von {o['reader']}." if o["reader"] else "")).strip()),
+                "url": url, "cover": o["img"], "links": {}, "external": True,
+                "complete_reason": "vollständiges Hörbuch bei Ohrka",
+            })
+    if not seen:
+        raise RuntimeError("keine Ohrka-Titel gefunden")
+    log(f"Ohrka: {len(books)} Hörbücher")
+    return books
+
+
+SOURCES = {"librivox": ("LibriVox", crawl_librivox), "ard": ("ARD Audiothek", crawl_ard),
+           "ard_serien": ("ARD-Hörspielreihen", crawl_ard_series), "feeds": ("Deutschlandfunk", crawl_feeds),
+           "vorleser": ("Vorleser.net", crawl_vorleser), "ohrka": ("Ohrka", crawl_ohrka)}
+
+
+def book_origin(b: dict) -> str:
+    """Welche Crawl-Quelle hat diesen Titel geliefert? (für 'alte Daten behalten')"""
+    pre = b.get("id", "").split(":", 1)[0]
+    return {"librivox": "librivox", "ard": "ard", "ardserie": "ard_serien", "feed": "feeds",
+            "vorleser": "vorleser", "ohrka": "ohrka"}.get(pre, pre)
 
 
 def load_data() -> dict:
@@ -617,7 +978,7 @@ def run_crawl() -> dict:
         books, meta, rejected = [], {"sources": {}}, {}
         for key, (label, fn) in SOURCES.items():
             if not CONFIG["sources"].get(key):          # Quelle abgeschaltet → alte Titel behalten
-                books.extend(b for b in old.get("books", []) if b.get("source") == label)
+                books.extend(b for b in old.get("books", []) if book_origin(b) == key)
                 continue
             t0 = time.time()
             try:
@@ -625,7 +986,7 @@ def run_crawl() -> dict:
                 meta["sources"][label] = {"ok": True, "count": len(found), "error": None,
                                           "seconds": round(time.time() - t0)}
             except Exception as e:                       # Quelle ausgefallen → alte Daten behalten
-                found = [b for b in old.get("books", []) if b.get("source") == label]
+                found = [b for b in old.get("books", []) if book_origin(b) == key]
                 meta["sources"][label] = {"ok": False, "count": len(found), "error": str(e)[:300],
                                           "seconds": round(time.time() - t0)}
                 log(f"{label}: FEHLER – {e}. Behalte {len(found)} Titel aus dem letzten Lauf.")
@@ -668,6 +1029,8 @@ def export_site(outdir: Path) -> None:
 
     def tracks_for(b: dict) -> list[dict]:
         f = tdir / f"{safe_name(b['id'])}.json"
+        if b.get("external"):
+            return []
         if b.get("tracks") is not None:
             return b["tracks"]
         if f.exists():                                   # LibriVox-Kapitel ändern sich nicht
@@ -687,15 +1050,18 @@ def export_site(outdir: Path) -> None:
             b, tracks = futs[fut], fut.result()
             tracks = [{"t": t.get("title") or f"Teil {i + 1}", "u": https(t.get("url")),
                        "d": to_int(t.get("duration"))} for i, t in enumerate(tracks) if t.get("url")]
-            if not tracks:
+            ext = bool(b.get("external"))
+            if not tracks and not ext:
                 continue                                 # nicht abspielbar → nicht in die App
-            name = safe_name(b["id"])
-            keep.add(name)
-            (tdir / f"{name}.json").write_text(json.dumps(tracks, ensure_ascii=False), "utf-8")
+            if tracks:
+                name = safe_name(b["id"])
+                keep.add(name)
+                (tdir / f"{name}.json").write_text(json.dumps(tracks, ensure_ascii=False), "utf-8")
             catalog.append({k: v for k, v in {
                 "id": b["id"], "src": b["source"], "st": b.get("station", ""), "t": b["title"],
                 "a": b.get("author", ""), "c": b["category"], "f": b["form"],
-                "d": sum(t["d"] for t in tracks) or b.get("duration", 0), "p": len(tracks),
+                "d": sum(t["d"] for t in tracks) or b.get("duration", 0), "p": len(tracks) or b.get("parts", 1),
+                "ext": 1 if ext else None,
                 "x": b.get("description", ""), "img": https(b.get("cover", "")), "url": https(b.get("url", "")),
                 "ok": b.get("complete_reason", "")}.items() if v not in ("", None)})
             if n % 200 == 0:
@@ -707,7 +1073,91 @@ def export_site(outdir: Path) -> None:
     (outdir / "catalog.json").write_text(json.dumps(
         {"updated": data.get("meta", {}).get("updated"), "books": catalog},
         ensure_ascii=False, separators=(",", ":")), "utf-8")
-    log(f"Export fertig: {len(catalog)} abspielbare Hörbücher in der App.")
+    n_ext = sum(1 for b in catalog if b.get("ext"))
+    log(f"Export fertig: {len(catalog) - n_ext} Hörbücher zum Abspielen + {n_ext} verlinkte Titel.")
+
+
+# --------------------------------------------------------------------------
+# Podcasts (Liste in podcasts.txt → docs/podcasts.json, läuft alle 2 Stunden)
+# --------------------------------------------------------------------------
+PODCAST_LIST = BASE_DIR / "podcasts.txt"
+PODCAST_FILE = BASE_DIR / "docs" / "podcasts.json"
+PODCAST_EPISODES = 40
+
+
+def read_podcast_list() -> list[str]:
+    if not PODCAST_LIST.exists():
+        return []
+    lines = [l.split("#", 1)[0].strip() if not l.strip().startswith("http") else l.strip()
+             for l in PODCAST_LIST.read_text("utf-8").splitlines()]
+    return [l for l in dict.fromkeys(lines) if l]
+
+
+def itunes_find(term: str) -> dict | None:
+    """Sucht einen Podcast im Apple-Podcast-Verzeichnis; nur Treffer, die zum Suchbegriff passen."""
+    url = ("https://itunes.apple.com/search?media=podcast&entity=podcast&country=DE&limit=8&term="
+           + urllib.parse.quote(term))
+    res = (http_json(url, timeout=30) or {}).get("results") or []
+    words = [w for w in norm_key(term).split() if len(w) > 2] or norm_key(term).split()
+    for r in res:
+        hay = norm_key(f"{r.get('collectionName', '')} {r.get('artistName', '')}")
+        if r.get("feedUrl") and all(w in hay for w in words):
+            return {"feed": r["feedUrl"], "img": r.get("artworkUrl600") or r.get("artworkUrl100") or ""}
+    return None
+
+
+def crawl_podcasts() -> dict:
+    entries = read_podcast_list()
+    old = {}
+    if PODCAST_FILE.exists():
+        try:
+            old = {p["term"]: p for p in json.loads(PODCAST_FILE.read_text("utf-8")).get("podcasts", [])}
+        except (json.JSONDecodeError, KeyError):
+            old = {}
+    pods = []
+    for term in entries:
+        prev = old.get(term, {})
+        feed, art = (term, "") if term.startswith("http") else (prev.get("feed"), "")
+        if not feed:
+            try:
+                hit = itunes_find(term)
+            except Exception as e:
+                hit = None
+                log(f"Podcast '{term}': Suche fehlgeschlagen ({e})")
+            if not hit:
+                log(f"Podcast '{term}': nicht gefunden – bitte genauer benennen oder Feed-Adresse eintragen")
+                continue
+            feed, art = hit["feed"], hit["img"]
+        try:
+            xml_text = http_text(feed, timeout=40)
+            ch, eps = feed_channel(xml_text), parse_feed(xml_text)
+        except Exception as e:
+            log(f"Podcast '{term}': Feed nicht lesbar ({e}) – behalte letzte Folgen")
+            if prev:
+                pods.append(prev)
+            continue
+        pid = hashlib.sha1(feed.encode("utf-8")).hexdigest()[:10]
+        eps = [e for e in eps if e.get("url")]
+        eps.sort(key=lambda e: e.get("date") or "", reverse=True)
+        pods.append({
+            "id": pid, "term": term, "feed": feed,
+            "name": ch.get("name") or term, "author": ch.get("author", ""),
+            "img": https(ch.get("img") or art or prev.get("img", "")), "desc": ch.get("desc", ""),
+            "eps": [{"id": "pod:" + hashlib.sha1(f"{feed}|{e.get('guid') or e['url']}".encode("utf-8")).hexdigest()[:12],
+                     "t": e["title"], "u": https(e["url"]), "d": e.get("duration", 0), "date": e.get("date", ""),
+                     "x": clean_text(e.get("description"), 300),
+                     **({"img": https(e["image"])} if e.get("image") and e["image"] != ch.get("img") else {})}
+                    for e in eps[:PODCAST_EPISODES]],
+        })
+        log(f"Podcast '{pods[-1]['name']}': {len(pods[-1]['eps'])} Folgen")
+        time.sleep(0.3)
+    data = {"updated": datetime.now().isoformat(timespec="seconds"), "podcasts": pods}
+    PODCAST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PODCAST_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), "utf-8")
+    tmp.replace(PODCAST_FILE)
+    log(f"Podcasts fertig: {len(pods)} von {len(entries)} Einträgen.")
+    return data
 
 
 def diagnose() -> None:
@@ -976,7 +1426,7 @@ load().then(poll);
 def main() -> None:
     global PORT
     ap = argparse.ArgumentParser(description="Hörbuch-Finder: vollständige deutsche Hörbücher finden")
-    ap.add_argument("command", nargs="?", default="serve", choices=["serve", "crawl", "site", "diagnose"])
+    ap.add_argument("command", nargs="?", default="serve", choices=["serve", "crawl", "site", "podcasts", "diagnose"])
     ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--skip-crawl", action="store_true", help="bei 'site': nur vorhandene Daten exportieren")
@@ -992,6 +1442,8 @@ def main() -> None:
         if not args.skip_crawl:
             run_crawl()
         export_site(BASE_DIR / "docs")
+    elif args.command == "podcasts":                  # nur Podcasts abgleichen (schnell, alle 2 Stunden)
+        crawl_podcasts()
     elif args.command == "diagnose":
         diagnose()
     else:
